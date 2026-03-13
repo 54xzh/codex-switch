@@ -1,7 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.Threading.Tasks;
 
 namespace codex_switch_winui.Services;
@@ -82,12 +82,12 @@ public sealed class WslEnvironmentService
 
         if (string.IsNullOrWhiteSpace(distroName))
         {
-            throw new InvalidOperationException("未能识别 WSL 发行版，请先在设置中填写。");
+            throw new InvalidOperationException("未能识别 WSL 发行版，请先在设置里填写。");
         }
 
         if (string.IsNullOrWhiteSpace(userName))
         {
-            throw new InvalidOperationException("未能识别 WSL 用户名，请先在设置中填写。");
+            throw new InvalidOperationException("未能识别 WSL 用户名，请先在设置里填写。");
         }
 
         var homeDirectory = configuredUserName is null
@@ -110,7 +110,50 @@ public sealed class WslEnvironmentService
         return $@"\\wsl$\{distroName}\{relativePath}";
     }
 
-    private static string RunWslShell(string command)
+    public bool TryRunCommand(
+        WslEnvironmentInfo info,
+        string executable,
+        IReadOnlyList<string> arguments,
+        out string standardOutput,
+        out string errorMessage)
+    {
+        ArgumentNullException.ThrowIfNull(info);
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+        ArgumentNullException.ThrowIfNull(arguments);
+
+        try
+        {
+            standardOutput = RunWslCommand(
+                executable,
+                arguments,
+                requireOutput: false,
+                distroName: info.DistroName,
+                userName: info.UserName);
+            errorMessage = string.Empty;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            standardOutput = string.Empty;
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    private static string RunWslShell(string command) =>
+        RunWslCommand(
+            executable: "sh",
+            arguments: ["-lc", command],
+            requireOutput: true,
+            distroName: null,
+            userName: null);
+
+    private static string RunWslCommand(
+        string executable,
+        IReadOnlyList<string> arguments,
+        bool requireOutput,
+        string? distroName,
+        string? userName)
     {
         try
         {
@@ -123,10 +166,24 @@ public sealed class WslEnvironmentService
                 CreateNoWindow = true
             };
 
+            if (!string.IsNullOrWhiteSpace(distroName))
+            {
+                startInfo.ArgumentList.Add("-d");
+                startInfo.ArgumentList.Add(distroName);
+            }
+
+            if (!string.IsNullOrWhiteSpace(userName))
+            {
+                startInfo.ArgumentList.Add("-u");
+                startInfo.ArgumentList.Add(userName);
+            }
+
             startInfo.ArgumentList.Add("-e");
-            startInfo.ArgumentList.Add("sh");
-            startInfo.ArgumentList.Add("-lc");
-            startInfo.ArgumentList.Add(command);
+            startInfo.ArgumentList.Add(executable);
+            foreach (var argument in arguments)
+            {
+                startInfo.ArgumentList.Add(argument);
+            }
 
             using var process = new Process { StartInfo = startInfo };
             process.Start();
@@ -148,7 +205,7 @@ public sealed class WslEnvironmentService
                 throw new InvalidOperationException(message);
             }
 
-            if (string.IsNullOrWhiteSpace(standardOutput))
+            if (requireOutput && string.IsNullOrWhiteSpace(standardOutput))
             {
                 var message = string.IsNullOrWhiteSpace(standardError)
                     ? "wsl.exe 没有返回可用结果。"

@@ -19,6 +19,51 @@ public sealed class CodexConfigService
     private static readonly Regex SessionIdFileNameRegex = new(
         "(?<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\.jsonl$",
         RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    private const string WslSessionMigrationPythonScript = """
+import json
+import os
+import sqlite3
+import sys
+import time
+
+payload_path = sys.argv[1]
+codex_directory = sys.argv[2]
+
+with open(payload_path, "r", encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+session_ids = [session_id for session_id in payload.get("SessionIds", []) if session_id]
+model_provider = payload.get("ModelProvider")
+
+if not model_provider or not session_ids:
+    sys.exit(0)
+
+db_path = os.path.join(codex_directory, "state_5.sqlite")
+if not os.path.exists(db_path):
+    sys.exit(0)
+
+for attempt in range(3):
+    connection = None
+    try:
+        connection = sqlite3.connect(db_path, timeout=5)
+        cursor = connection.cursor()
+        cursor.execute("PRAGMA busy_timeout = 5000")
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.executemany(
+            "UPDATE threads SET model_provider = ? WHERE id = ?",
+            [(model_provider, session_id) for session_id in session_ids],
+        )
+        connection.commit()
+        break
+    except sqlite3.OperationalError as ex:
+        if "locked" in str(ex).lower() and attempt < 2:
+            time.sleep(0.5 * (attempt + 1))
+            continue
+        raise
+    finally:
+        if connection is not None:
+            connection.close()
+""";
 
     private readonly ConfigTemplateStore _templates = new();
     private readonly WslEnvironmentService _wsl = new();
@@ -91,7 +136,7 @@ public sealed class CodexConfigService
             ReplaceAuthJson(profile, target.CodexDirectoryPath);
             ReplaceConfigToml(profile, target.CodexDirectoryPath, apiKeyProviderName);
             TryMigrateRecentSessionModelProviders(
-                target.CodexDirectoryPath,
+                target,
                 profile.ProviderCategory,
                 apiKeyProviderName,
                 database.SessionMigrationDays);
@@ -157,7 +202,9 @@ public sealed class CodexConfigService
             targets.Add(new CodexTargetContext(
                 DisplayName: "Windows",
                 CodexDirectoryPath: CodexDirectoryPath,
-                BackupsDirectoryPath: Path.Combine(BackupsDirectoryPath, "windows")));
+                BackupsDirectoryPath: Path.Combine(BackupsDirectoryPath, "windows"),
+                CodexLinuxPath: null,
+                WslEnvironment: null));
         }
 
         if (database.ReplaceWslTarget)
@@ -170,7 +217,9 @@ public sealed class CodexConfigService
             targets.Add(new CodexTargetContext(
                 DisplayName: $"WSL ({info.DistroName}/{info.UserName})",
                 CodexDirectoryPath: codexWindowsPath,
-                BackupsDirectoryPath: Path.Combine(BackupsDirectoryPath, "wsl", backupLeaf)));
+                BackupsDirectoryPath: Path.Combine(BackupsDirectoryPath, "wsl", backupLeaf),
+                CodexLinuxPath: codexLinuxPath,
+                WslEnvironment: info));
         }
 
         if (targets.Count == 0)
@@ -367,7 +416,7 @@ public sealed class CodexConfigService
     }
 
     private void TryMigrateRecentSessionModelProviders(
-        string codexDirectoryPath,
+        CodexTargetContext target,
         ProviderCategory providerCategory,
         string apiKeyProviderName,
         int sessionMigrationDays)
@@ -380,7 +429,7 @@ public sealed class CodexConfigService
             }
 
             var days = Math.Clamp(sessionMigrationDays, 1, 30);
-            var sessionsRoot = Path.Combine(codexDirectoryPath, "sessions");
+            var sessionsRoot = Path.Combine(target.CodexDirectoryPath, "sessions");
             if (!Directory.Exists(sessionsRoot))
             {
                 return;
@@ -414,7 +463,7 @@ public sealed class CodexConfigService
                 }
             }
 
-            TryRewriteStateThreadModelProvider(codexDirectoryPath, targetProvider, sessionIdsToSync);
+            TryRewriteStateThreadModelProvider(target, targetProvider, sessionIdsToSync);
         }
         catch
         {
@@ -483,8 +532,8 @@ public sealed class CodexConfigService
         }
     }
 
-    private static void TryRewriteStateThreadModelProvider(
-        string codexDirectoryPath,
+    private void TryRewriteStateThreadModelProvider(
+        CodexTargetContext target,
         string targetProvider,
         IEnumerable<string> sessionIds)
     {
@@ -500,6 +549,27 @@ public sealed class CodexConfigService
                 return;
             }
 
+            if (target.WslEnvironment is not null && !string.IsNullOrWhiteSpace(target.CodexLinuxPath))
+            {
+                TryRewriteWslStateThreadModelProvider(target, targetProvider, ids);
+                return;
+            }
+
+            TryRewriteLocalStateThreadModelProvider(target.CodexDirectoryPath, targetProvider, ids);
+        }
+        catch
+        {
+            // ignore
+        }
+    }
+
+    private static void TryRewriteLocalStateThreadModelProvider(
+        string codexDirectoryPath,
+        string targetProvider,
+        IReadOnlyList<string> sessionIds)
+    {
+        try
+        {
             var sqlitePath = Path.Combine(codexDirectoryPath, "state_5.sqlite");
             if (!File.Exists(sqlitePath))
             {
@@ -523,7 +593,7 @@ public sealed class CodexConfigService
             command.Parameters.AddWithValue("$modelProvider", targetProvider);
             var idParameter = command.Parameters.Add("$id", SqliteType.Text);
 
-            foreach (var sessionId in ids)
+            foreach (var sessionId in sessionIds)
             {
                 idParameter.Value = sessionId;
                 command.ExecuteNonQuery();
@@ -535,6 +605,72 @@ public sealed class CodexConfigService
         {
             // ignore
         }
+    }
+
+    private void TryRewriteWslStateThreadModelProvider(
+        CodexTargetContext target,
+        string targetProvider,
+        IReadOnlyList<string> sessionIds)
+    {
+        if (target.WslEnvironment is null || string.IsNullOrWhiteSpace(target.CodexLinuxPath))
+        {
+            return;
+        }
+
+        var tempFileName = $"codex-switch-session-migration-{Guid.NewGuid():N}.json";
+        var tempWindowsDirectory = Path.Combine(target.CodexDirectoryPath, "tmp");
+        var tempWindowsPath = Path.Combine(tempWindowsDirectory, tempFileName);
+        var tempLinuxPath = CombineLinuxPath(target.CodexLinuxPath, $"tmp/{tempFileName}");
+
+        try
+        {
+            Directory.CreateDirectory(tempWindowsDirectory);
+
+            var payload = new WslSessionMigrationPayload(targetProvider, sessionIds.ToArray());
+            File.WriteAllText(
+                tempWindowsPath,
+                JsonSerializer.Serialize(payload),
+                new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+
+            if (TryRunWslPythonMigration(target.WslEnvironment, tempLinuxPath, target.CodexLinuxPath, "python3"))
+            {
+                return;
+            }
+
+            TryRunWslPythonMigration(target.WslEnvironment, tempLinuxPath, target.CodexLinuxPath, "python");
+        }
+        catch
+        {
+            // ignore
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempWindowsPath))
+                {
+                    File.Delete(tempWindowsPath);
+                }
+            }
+            catch
+            {
+                // ignore
+            }
+        }
+    }
+
+    private bool TryRunWslPythonMigration(
+        WslEnvironmentInfo wslEnvironment,
+        string payloadLinuxPath,
+        string codexLinuxPath,
+        string pythonExecutable)
+    {
+        return _wsl.TryRunCommand(
+            wslEnvironment,
+            pythonExecutable,
+            ["-c", WslSessionMigrationPythonScript, payloadLinuxPath, codexLinuxPath],
+            out _,
+            out _);
     }
 
     private static string? TryGetSessionId(string filePath, string firstLine)
@@ -692,7 +828,14 @@ public sealed class CodexConfigService
         public static SessionMigrationOutcome Skip => new(null, false);
     }
 
-    private sealed record CodexTargetContext(string DisplayName, string CodexDirectoryPath, string BackupsDirectoryPath);
+    private sealed record WslSessionMigrationPayload(string ModelProvider, IReadOnlyList<string> SessionIds);
+
+    private sealed record CodexTargetContext(
+        string DisplayName,
+        string CodexDirectoryPath,
+        string BackupsDirectoryPath,
+        string? CodexLinuxPath,
+        WslEnvironmentInfo? WslEnvironment);
 }
 
 public sealed record CodexTargetDirectoryInfo(string DisplayName, string Path);
