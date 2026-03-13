@@ -19,8 +19,6 @@
             Severity="Error" />
 
         <StackPanel Grid.Row="1" Margin="0,12,0,0" Spacing="12">
-            <TextBlock Opacity="0.8" Text="这里可以指定 WSL 目标。留空时会自动使用默认发行版和默认用户。" TextWrapping="WrapWholeWords" />
-
             <Grid ColumnSpacing="{StaticResource StandardSpacing}">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="100" />

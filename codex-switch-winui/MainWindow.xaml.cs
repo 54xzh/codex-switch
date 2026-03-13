@@ -31,6 +31,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private XamlRoot? _xamlRoot;
     private IntPtr _windowHandle;
     private string? _startupErrorMessage;
+    private bool _isSwitching;
 
     public ObservableCollection<CodexProfile> Profiles { get; } = new();
 
@@ -51,6 +52,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedProfileBaseUrl));
             OnPropertyChanged(nameof(SelectedProfileAuthModeText));
             OnPropertyChanged(nameof(SelectedProfileProviderCategoryText));
+            OnPropertyChanged(nameof(CanSwitchSelectedProfile));
         }
     }
 
@@ -73,6 +75,26 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             : SelectedProfile.ProviderCategory == ProviderCategory.OpenAI
                 ? "OpenAI"
                 : "APIKEY";
+    public bool IsSwitching
+    {
+        get => _isSwitching;
+        private set
+        {
+            if (_isSwitching == value)
+            {
+                return;
+            }
+
+            _isSwitching = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanSwitchSelectedProfile));
+            OnPropertyChanged(nameof(SwitchIconOpacity));
+        }
+    }
+
+    public bool CanSwitchSelectedProfile => SelectedProfile is not null && !IsSwitching;
+
+    public double SwitchIconOpacity => IsSwitching ? 0d : 1d;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -353,6 +375,11 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     private async void Switch_Click(object sender, RoutedEventArgs e)
     {
+        if (IsSwitching)
+        {
+            return;
+        }
+
         var profile = SelectedProfile;
         if (profile is null)
         {
@@ -360,9 +387,11 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
+        IsSwitching = true;
+
         try
         {
-            var appliedTargets = _codex.ApplyProfile(profile, _database);
+            var appliedTargets = await Task.Run(() => _codex.ApplyProfile(profile, _database));
             _database.LastSelectedProfileId = profile.Id;
             _store.Save(_database);
             await ShowInfoAsync("成功", $"切换完成：{string.Join("、", appliedTargets)}。", sender);
@@ -370,6 +399,10 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         catch (Exception ex)
         {
             await ShowErrorAsync("切换失败", ex.Message, sender);
+        }
+        finally
+        {
+            IsSwitching = false;
         }
     }
 
