@@ -389,21 +389,32 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
         IsSwitching = true;
 
+        string? successMessage = null;
+        string? errorMessage = null;
+
         try
         {
             var appliedTargets = await Task.Run(() => _codex.ApplyProfile(profile, _database));
             _database.LastSelectedProfileId = profile.Id;
             _store.Save(_database);
-            await ShowInfoAsync("成功", $"切换完成：{string.Join("、", appliedTargets)}。", sender);
+            successMessage = $"切换完成：{string.Join("、", appliedTargets)}。";
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("切换失败", ex.Message, sender);
+            errorMessage = ex.Message;
         }
         finally
         {
             IsSwitching = false;
         }
+
+        if (!string.IsNullOrEmpty(errorMessage))
+        {
+            await ShowErrorAsync("切换失败", errorMessage, sender);
+            return;
+        }
+
+        await ShowInfoAsync("成功", successMessage ?? "切换完成。", sender);
     }
 
     private void SessionMigrationDaysBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
