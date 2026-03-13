@@ -25,6 +25,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private readonly CodexConfigService _codex = new();
 
     private ProfileDatabase _database = new();
+    private bool _isRefreshingDefaultWslEnvironment;
     private bool _suppressTargetSettingsUpdate;
     private bool _suppressSessionMigrationDaysUpdate;
     private XamlRoot? _xamlRoot;
@@ -78,7 +79,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow()
     {
         InitializeComponent();
-        TrySetWindowSizeAndCenter(1400, 900);
+        TrySetWindowSizeAndCenter(1480, 1000);
 
         Activated += async (_, _) =>
         {
@@ -104,6 +105,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             _database = _store.Load();
             NormalizeAndShowTargetSettings();
             NormalizeAndShowSessionMigrationDays();
+            ScheduleDetectedWslEnvironmentRefresh();
 
             var sorted = _database.Profiles.OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase).ToList();
             Profiles.Clear();
@@ -176,17 +178,14 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        if (_codex.TryResolveWslEnvironment(_database, out var info, out var errorMessage) && info is not null)
+        if (TryResolveWslEnvironmentFromStoredValues(out var info, out var sourceText, out var errorMessage) && info is not null)
         {
             var codexPath = $"{info.HomeDirectory.TrimEnd('/')}/.codex";
-            var sourceText = HasCustomWslSettings()
-                ? "已使用设置里的值"
-                : "自动识别";
             WslTargetStatusTextBlock.Text = $"WSL 目标：{info.DistroName} / {info.UserName} -> {codexPath}（{sourceText}）";
             return;
         }
 
-        WslTargetStatusTextBlock.Text = $"WSL 自动识别失败：{errorMessage}";
+        WslTargetStatusTextBlock.Text = errorMessage;
     }
 
     private bool HasCustomWslSettings() =>
@@ -336,6 +335,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
         _store.Save(_database);
         UpdateWslTargetStatusText();
+        ScheduleDetectedWslEnvironmentRefresh();
     }
 
     private async void Switch_Click(object sender, RoutedEventArgs e)
@@ -448,14 +448,22 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         try
         {
+            _codex.TryGetCachedDefaultWslEnvironment(_database, out var cachedDefaultEnvironment);
             var dialog = new SettingsDialog(
                 GetXamlRoot(sender),
                 _database.WslDistroName,
-                _database.WslUserName);
+                _database.WslUserName,
+                cachedDefaultEnvironment,
+                _database.CachedDefaultWslErrorMessage);
 
             var result = await dialog.ShowAsync();
+            PersistDetectedWslEnvironmentRefresh(
+                dialog.RefreshedDetectedEnvironment,
+                dialog.RefreshedDetectedEnvironmentErrorMessage);
+
             if (result != ContentDialogResult.Primary)
             {
+                UpdateWslTargetStatusText();
                 return;
             }
 
@@ -463,6 +471,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             _database.WslUserName = dialog.WslUserName;
             _store.Save(_database);
             UpdateWslTargetStatusText();
+            ScheduleDetectedWslEnvironmentRefresh();
         }
         catch (Exception ex)
         {
@@ -647,6 +656,145 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             return AppContext.BaseDirectory;
         }
     }
+
+    private void ScheduleDetectedWslEnvironmentRefresh()
+    {
+        if (HasCustomWslSettings() || _isRefreshingDefaultWslEnvironment)
+        {
+            return;
+        }
+
+        _ = RefreshDetectedWslEnvironmentAsync();
+    }
+
+    private async Task RefreshDetectedWslEnvironmentAsync()
+    {
+        if (_isRefreshingDefaultWslEnvironment)
+        {
+            return;
+        }
+
+        _isRefreshingDefaultWslEnvironment = true;
+        UpdateWslTargetStatusText();
+
+        var databaseSnapshot = _database;
+
+        try
+        {
+            var result = await Task.Run(() =>
+            {
+                var success = _codex.TryRefreshDefaultWslEnvironment(out var info, out var errorMessage);
+                return new WslDefaultRefreshResult(success, info, errorMessage);
+            });
+
+            if (!ReferenceEquals(databaseSnapshot, _database))
+            {
+                return;
+            }
+
+            PersistDetectedWslEnvironmentRefresh(result.Info, result.ErrorMessage);
+        }
+        finally
+        {
+            _isRefreshingDefaultWslEnvironment = false;
+            UpdateWslTargetStatusText();
+        }
+    }
+
+    private void PersistDetectedWslEnvironmentRefresh(WslEnvironmentInfo? info, string? errorMessage)
+    {
+        var changed = false;
+
+        if (info is not null)
+        {
+            changed |= !string.Equals(_database.CachedDefaultWslDistroName, info.DistroName, StringComparison.Ordinal);
+            changed |= !string.Equals(_database.CachedDefaultWslUserName, info.UserName, StringComparison.Ordinal);
+            changed |= !string.Equals(_database.CachedDefaultWslHomeDirectory, info.HomeDirectory, StringComparison.Ordinal);
+            changed |= _database.CachedDefaultWslDetectedAtUtc is null;
+            changed |= _database.CachedDefaultWslErrorMessage is not null;
+            changed |= _database.CachedDefaultWslErrorAtUtc is not null;
+
+            _database.CachedDefaultWslDistroName = info.DistroName;
+            _database.CachedDefaultWslUserName = info.UserName;
+            _database.CachedDefaultWslHomeDirectory = info.HomeDirectory;
+            _database.CachedDefaultWslDetectedAtUtc = DateTime.UtcNow;
+            _database.CachedDefaultWslErrorMessage = null;
+            _database.CachedDefaultWslErrorAtUtc = null;
+        }
+        else if (!string.IsNullOrWhiteSpace(errorMessage))
+        {
+            var normalizedErrorMessage = errorMessage.Trim();
+            changed |= !string.Equals(_database.CachedDefaultWslErrorMessage, normalizedErrorMessage, StringComparison.Ordinal);
+            changed |= _database.CachedDefaultWslErrorAtUtc is null;
+
+            _database.CachedDefaultWslErrorMessage = normalizedErrorMessage;
+            _database.CachedDefaultWslErrorAtUtc = DateTime.UtcNow;
+        }
+
+        if (changed)
+        {
+            _store.Save(_database);
+        }
+    }
+
+    private bool TryResolveWslEnvironmentFromStoredValues(out WslEnvironmentInfo? info, out string sourceText, out string errorMessage)
+    {
+        var configuredDistroName = NormalizeOptionalValue(_database.WslDistroName);
+        var configuredUserName = NormalizeOptionalValue(_database.WslUserName);
+        var hasCachedDefault = _codex.TryGetCachedDefaultWslEnvironment(_database, out var cachedDefaultInfo);
+
+        if (configuredDistroName is not null && configuredUserName is not null)
+        {
+            info = new WslEnvironmentInfo(configuredDistroName, configuredUserName, $"/home/{configuredUserName}");
+            sourceText = "已使用设置里的值";
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        if (configuredDistroName is null && configuredUserName is null)
+        {
+            if (hasCachedDefault && cachedDefaultInfo is not null)
+            {
+                info = cachedDefaultInfo;
+                sourceText = "本地缓存";
+                errorMessage = string.Empty;
+                return true;
+            }
+
+            info = null;
+            sourceText = string.Empty;
+            errorMessage = _isRefreshingDefaultWslEnvironment
+                ? "WSL 默认值尚未缓存，正在后台读取。"
+                : NormalizeOptionalValue(_database.CachedDefaultWslErrorMessage) ?? "WSL 默认值尚未缓存。";
+            return false;
+        }
+
+        if (hasCachedDefault && cachedDefaultInfo is not null)
+        {
+            var distroName = configuredDistroName ?? cachedDefaultInfo.DistroName;
+            var userName = configuredUserName ?? cachedDefaultInfo.UserName;
+            var homeDirectory = configuredUserName is not null
+                ? $"/home/{userName}"
+                : cachedDefaultInfo.HomeDirectory;
+
+            info = new WslEnvironmentInfo(distroName, userName, homeDirectory);
+            sourceText = "已使用设置里的值";
+            errorMessage = string.Empty;
+            return true;
+        }
+
+        info = null;
+        sourceText = string.Empty;
+        errorMessage = _isRefreshingDefaultWslEnvironment
+            ? "设置里只填了一部分，正在后台读取默认 WSL 信息。"
+            : "设置里只填了一部分，且默认值尚未缓存。";
+        return false;
+    }
+
+    private static string? NormalizeOptionalValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private sealed record WslDefaultRefreshResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

@@ -8,11 +8,25 @@ namespace codex_switch_winui.Services;
 
 public sealed class WslEnvironmentService
 {
+    private static readonly object DefaultEnvironmentCacheGate = new();
+    private static bool _hasCachedDefaultEnvironmentResult;
+    private static WslEnvironmentInfo? _cachedDefaultEnvironment;
+    private static string _cachedDefaultEnvironmentErrorMessage = string.Empty;
+
     public bool TryGetDefaultEnvironment(out WslEnvironmentInfo? info, out string errorMessage)
+    {
+        var result = GetOrLoadDefaultEnvironment();
+        info = result.Info;
+        errorMessage = result.ErrorMessage;
+        return result.Success;
+    }
+
+    public bool TryRefreshDefaultEnvironment(out WslEnvironmentInfo? info, out string errorMessage)
     {
         try
         {
-            info = GetDefaultEnvironment();
+            info = LoadDefaultEnvironment();
+            SetCachedDefaultEnvironmentResult(info, string.Empty);
             errorMessage = string.Empty;
             return true;
         }
@@ -20,6 +34,7 @@ public sealed class WslEnvironmentService
         {
             info = null;
             errorMessage = ex.Message;
+            SetCachedDefaultEnvironmentResult(null, errorMessage);
             return false;
         }
     }
@@ -42,29 +57,13 @@ public sealed class WslEnvironmentService
 
     public WslEnvironmentInfo GetDefaultEnvironment()
     {
-        var distroName = RunWslShell("printf '%s' \"$WSL_DISTRO_NAME\"");
-        var userName = RunWslShell("printf '%s' \"$USER\"");
-        var homeDirectory = RunWslShell("printf '%s' \"$HOME\"");
-
-        if (string.IsNullOrWhiteSpace(distroName))
+        var result = GetOrLoadDefaultEnvironment();
+        if (result.Success && result.Info is not null)
         {
-            throw new InvalidOperationException("未能识别默认 WSL 发行版。");
+            return result.Info;
         }
 
-        if (string.IsNullOrWhiteSpace(userName))
-        {
-            throw new InvalidOperationException("未能识别默认 WSL 用户。");
-        }
-
-        if (string.IsNullOrWhiteSpace(homeDirectory))
-        {
-            throw new InvalidOperationException("未能识别 WSL 家目录。");
-        }
-
-        return new WslEnvironmentInfo(
-            distroName.Trim(),
-            userName.Trim(),
-            NormalizeLinuxPath(homeDirectory));
+        throw new InvalidOperationException(result.ErrorMessage);
     }
 
     public WslEnvironmentInfo ResolveEnvironment(string? preferredDistroName, string? preferredUserName)
@@ -184,6 +183,61 @@ public sealed class WslEnvironmentService
         return normalized.StartsWith("/", StringComparison.Ordinal) ? normalized : "/" + normalized;
     }
 
+    private static CachedDefaultEnvironmentResult GetOrLoadDefaultEnvironment()
+    {
+        lock (DefaultEnvironmentCacheGate)
+        {
+            if (_hasCachedDefaultEnvironmentResult)
+            {
+                return new CachedDefaultEnvironmentResult(
+                    _cachedDefaultEnvironment is not null,
+                    _cachedDefaultEnvironment,
+                    _cachedDefaultEnvironmentErrorMessage);
+            }
+        }
+
+        try
+        {
+            var info = LoadDefaultEnvironment();
+            SetCachedDefaultEnvironmentResult(info, string.Empty);
+
+            return new CachedDefaultEnvironmentResult(true, info, string.Empty);
+        }
+        catch (Exception ex)
+        {
+            SetCachedDefaultEnvironmentResult(null, ex.Message);
+
+            return new CachedDefaultEnvironmentResult(false, null, ex.Message);
+        }
+    }
+
+    private static WslEnvironmentInfo LoadDefaultEnvironment()
+    {
+        var distroName = RunWslShell("printf '%s' \"$WSL_DISTRO_NAME\"");
+        var userName = RunWslShell("printf '%s' \"$USER\"");
+        var homeDirectory = RunWslShell("printf '%s' \"$HOME\"");
+
+        if (string.IsNullOrWhiteSpace(distroName))
+        {
+            throw new InvalidOperationException("未能识别默认 WSL 发行版。");
+        }
+
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            throw new InvalidOperationException("未能识别默认 WSL 用户。");
+        }
+
+        if (string.IsNullOrWhiteSpace(homeDirectory))
+        {
+            throw new InvalidOperationException("未能识别 WSL 家目录。");
+        }
+
+        return new WslEnvironmentInfo(
+            distroName.Trim(),
+            userName.Trim(),
+            NormalizeLinuxPath(homeDirectory));
+    }
+
     private static string? NormalizeOptionalValue(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -193,6 +247,18 @@ public sealed class WslEnvironmentService
 
         return value.Trim();
     }
+
+    private static void SetCachedDefaultEnvironmentResult(WslEnvironmentInfo? info, string errorMessage)
+    {
+        lock (DefaultEnvironmentCacheGate)
+        {
+            _cachedDefaultEnvironment = info;
+            _cachedDefaultEnvironmentErrorMessage = errorMessage;
+            _hasCachedDefaultEnvironmentResult = true;
+        }
+    }
+
+    private sealed record CachedDefaultEnvironmentResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
 }
 
 public sealed record WslEnvironmentInfo(string DistroName, string UserName, string HomeDirectory);

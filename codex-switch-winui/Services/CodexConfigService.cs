@@ -32,10 +32,43 @@ public sealed class CodexConfigService
     public bool TryGetDefaultWslEnvironment(out WslEnvironmentInfo? info, out string errorMessage) =>
         _wsl.TryGetDefaultEnvironment(out info, out errorMessage);
 
+    public bool TryRefreshDefaultWslEnvironment(out WslEnvironmentInfo? info, out string errorMessage) =>
+        _wsl.TryRefreshDefaultEnvironment(out info, out errorMessage);
+
     public bool TryResolveWslEnvironment(ProfileDatabase database, out WslEnvironmentInfo? info, out string errorMessage)
     {
         ArgumentNullException.ThrowIfNull(database);
-        return _wsl.TryResolveEnvironment(database.WslDistroName, database.WslUserName, out info, out errorMessage);
+
+        try
+        {
+            info = ResolveWslEnvironment(database);
+            errorMessage = string.Empty;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            info = null;
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
+    public bool TryGetCachedDefaultWslEnvironment(ProfileDatabase database, out WslEnvironmentInfo? info)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+
+        var distroName = NormalizeOptionalValue(database.CachedDefaultWslDistroName);
+        var userName = NormalizeOptionalValue(database.CachedDefaultWslUserName);
+        var homeDirectory = NormalizeOptionalValue(database.CachedDefaultWslHomeDirectory);
+
+        if (distroName is null || userName is null || homeDirectory is null)
+        {
+            info = null;
+            return false;
+        }
+
+        info = new WslEnvironmentInfo(distroName, userName, homeDirectory);
+        return true;
     }
 
     public IReadOnlyList<string> ApplyProfile(CodexProfile profile, ProfileDatabase database)
@@ -120,7 +153,7 @@ public sealed class CodexConfigService
 
         if (database.ReplaceWslTarget)
         {
-            var info = _wsl.ResolveEnvironment(database.WslDistroName, database.WslUserName);
+            var info = ResolveWslEnvironment(database);
             var codexLinuxPath = CombineLinuxPath(info.HomeDirectory, ".codex");
             var codexWindowsPath = _wsl.ToWindowsPath(info.DistroName, codexLinuxPath);
             var backupLeaf = $"{SanitizeDirectorySegment(info.DistroName)}-{SanitizeDirectorySegment(info.UserName)}";
@@ -431,11 +464,55 @@ public sealed class CodexConfigService
         return $"{normalizedLeft}/{normalizedRight}";
     }
 
+    private WslEnvironmentInfo ResolveWslEnvironment(ProfileDatabase database)
+    {
+        var configuredDistroName = NormalizeOptionalValue(database.WslDistroName);
+        var configuredUserName = NormalizeOptionalValue(database.WslUserName);
+
+        if (configuredDistroName is not null && configuredUserName is not null)
+        {
+            return new WslEnvironmentInfo(
+                configuredDistroName,
+                configuredUserName,
+                $"/home/{configuredUserName}");
+        }
+
+        var cachedDefaultInfo = TryGetCachedDefaultWslEnvironment(database, out var cachedInfo)
+            ? cachedInfo
+            : null;
+
+        if (configuredDistroName is null && configuredUserName is null && cachedDefaultInfo is not null)
+        {
+            return cachedDefaultInfo;
+        }
+
+        if (configuredDistroName is not null && cachedDefaultInfo is not null)
+        {
+            return new WslEnvironmentInfo(
+                configuredDistroName,
+                cachedDefaultInfo.UserName,
+                cachedDefaultInfo.HomeDirectory);
+        }
+
+        if (configuredUserName is not null && cachedDefaultInfo is not null)
+        {
+            return new WslEnvironmentInfo(
+                cachedDefaultInfo.DistroName,
+                configuredUserName,
+                $"/home/{configuredUserName}");
+        }
+
+        return _wsl.ResolveEnvironment(database.WslDistroName, database.WslUserName);
+    }
+
     private static string SanitizeDirectorySegment(string value)
     {
         var invalidChars = Path.GetInvalidFileNameChars();
         return string.Concat(value.Select(ch => invalidChars.Contains(ch) ? '_' : ch));
     }
+
+    private static string? NormalizeOptionalValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private sealed record CodexTargetContext(string DisplayName, string CodexDirectoryPath, string BackupsDirectoryPath);
 }
