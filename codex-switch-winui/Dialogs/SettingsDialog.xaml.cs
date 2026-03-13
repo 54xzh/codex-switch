@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using codex_switch_winui.Models;
 using codex_switch_winui.Services;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -12,6 +13,7 @@ public sealed partial class SettingsDialog : ContentDialog
     private WslEnvironmentInfo? _defaultEnvironment;
     private bool _isRefreshingDetectedDefaults;
 
+    public string ApiKeyProviderName { get; private set; } = ProfileDatabase.DefaultApiKeyProviderName;
     public string? WslDistroName { get; private set; }
     public string? WslUserName { get; private set; }
     public WslEnvironmentInfo? RefreshedDetectedEnvironment { get; private set; }
@@ -19,6 +21,7 @@ public sealed partial class SettingsDialog : ContentDialog
 
     public SettingsDialog(
         XamlRoot xamlRoot,
+        string? apiKeyProviderName,
         string? wslDistroName,
         string? wslUserName,
         WslEnvironmentInfo? cachedDefaultEnvironment,
@@ -36,6 +39,7 @@ public sealed partial class SettingsDialog : ContentDialog
 
         DistroNameBox.Text = wslDistroName ?? string.Empty;
         UserNameBox.Text = wslUserName ?? string.Empty;
+        ProviderNameBox.Text = GetEffectiveApiKeyProviderName(apiKeyProviderName);
 
         ApplyDetectedDefaults(cachedDefaultEnvironment, cachedDefaultErrorMessage);
         UpdatePreview();
@@ -84,6 +88,7 @@ public sealed partial class SettingsDialog : ContentDialog
             return;
         }
 
+        ApiKeyProviderName = GetEffectiveApiKeyProviderName(ProviderNameBox.Text);
         WslDistroName = distroName;
         WslUserName = userName;
         ErrorBar.IsOpen = false;
@@ -172,18 +177,19 @@ public sealed partial class SettingsDialog : ContentDialog
 
     private void UpdatePreview()
     {
+        var providerName = GetEffectiveApiKeyProviderName(ProviderNameBox.Text);
         var distroName = NormalizeOptionalValue(DistroNameBox.Text) ?? _defaultEnvironment?.DistroName;
         var userName = NormalizeOptionalValue(UserNameBox.Text) ?? _defaultEnvironment?.UserName;
 
         if (string.IsNullOrWhiteSpace(distroName) || string.IsNullOrWhiteSpace(userName))
         {
-            PreviewTextBlock.Text = "请填写发行版和用户名，或等待默认值刷新完成。";
+            PreviewTextBlock.Text = $"API Key 提供商名：{providerName}\n请填写发行版和用户名，或等待默认值刷新完成。";
             return;
         }
 
         var linuxPath = $"/home/{userName}/.codex";
         var windowsPath = _wsl.ToWindowsPath(distroName, linuxPath);
-        PreviewTextBlock.Text = $"Linux 路径：{linuxPath}\nWindows 访问路径：{windowsPath}";
+        PreviewTextBlock.Text = $"API Key 提供商名：{providerName}\nLinux 路径：{linuxPath}\nWindows 访问路径：{windowsPath}";
     }
 
     private void ShowValidationError(string message)
@@ -198,6 +204,9 @@ public sealed partial class SettingsDialog : ContentDialog
 
     private static string? NormalizeOptionalValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string GetEffectiveApiKeyProviderName(string? value) =>
+        NormalizeOptionalValue(value) ?? ProfileDatabase.DefaultApiKeyProviderName;
 
     private sealed record RefreshDetectedDefaultsResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
 }

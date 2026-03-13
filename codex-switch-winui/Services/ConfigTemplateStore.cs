@@ -22,7 +22,20 @@ public sealed class ConfigTemplateStore
 
     public string LoadOpenAiTemplate() => LoadOrCreate(OpenAiTemplatePath, GetDefaultOpenAiTemplate());
 
-    public string LoadApiKeyTemplate() => LoadOrCreate(ApiKeyTemplatePath, GetDefaultApiKeyTemplate());
+    public string LoadApiKeyTemplate()
+    {
+        var template = LoadOrCreate(ApiKeyTemplatePath, GetDefaultApiKeyTemplate());
+        var legacyDefault = NormalizeLineEndings(GetLegacyDefaultApiKeyTemplate());
+
+        if (!string.Equals(template, legacyDefault, StringComparison.Ordinal))
+        {
+            return template;
+        }
+
+        var upgradedTemplate = NormalizeLineEndings(GetDefaultApiKeyTemplate());
+        Save(ApiKeyTemplatePath, upgradedTemplate);
+        return upgradedTemplate;
+    }
 
     public void SaveOpenAiTemplate(string template) => Save(OpenAiTemplatePath, template);
 
@@ -42,6 +55,24 @@ public sealed class ConfigTemplateStore
             }) + "\n";
 
     public string GetDefaultApiKeyTemplate() =>
+        string.Join(
+            "\n",
+            new[]
+            {
+                "model_provider = {provider_name}",
+                "model = \"gpt-5.4\"",
+                "model_reasoning_effort = \"xhigh\"",
+                string.Empty,
+                "disable_response_storage = true",
+                string.Empty,
+                "[model_providers.{provider_name}]",
+                "name = {provider_name}",
+                "base_url = {base_url}",
+                "wire_api = \"responses\"",
+                "requires_openai_auth = true"
+            }) + "\n";
+
+    private static string GetLegacyDefaultApiKeyTemplate() =>
         string.Join(
             "\n",
             new[]

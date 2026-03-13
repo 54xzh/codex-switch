@@ -56,7 +56,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="*" />
                         </Grid.RowDefinitions>
-                        <TextBlock Grid.Row="0" Opacity="0.7" Text="可用变量：{base_url}（自动转为 TOML 字符串）。" />
+                        <TextBlock Grid.Row="0" Opacity="0.7" Text="可用变量：{base_url}、{provider_name}（都会自动转为 TOML 字符串；{provider_name} 也可以用在表名里）。" />
                         <TextBox
                             Grid.Row="1"
                             x:Name="ApiKeyTemplateBox"

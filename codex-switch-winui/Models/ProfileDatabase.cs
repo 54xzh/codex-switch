@@ -5,6 +5,8 @@ namespace codex_switch_winui.Models;
 
 public sealed class ProfileDatabase
 {
+    public const string DefaultApiKeyProviderName = "apikey";
+
     public List<CodexProfile> Profiles { get; set; } = new();
     public Guid? LastSelectedProfileId { get; set; }
 
@@ -20,4 +22,5 @@ public sealed class ProfileDatabase
     public DateTime? CachedDefaultWslErrorAtUtc { get; set; }
 
     public int SessionMigrationDays { get; set; } = 3;
+    public string ApiKeyProviderName { get; set; } = DefaultApiKeyProviderName;
 }

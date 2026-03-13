@@ -76,6 +76,7 @@ public sealed class CodexConfigService
         ArgumentNullException.ThrowIfNull(profile);
         ArgumentNullException.ThrowIfNull(database);
 
+        var apiKeyProviderName = GetEffectiveApiKeyProviderName(database);
         var targets = ResolveSelectedTargets(database);
         EnsureTargetsExist(targets);
 
@@ -84,8 +85,12 @@ public sealed class CodexConfigService
         {
             CreateBackupSetIfNeeded(target);
             ReplaceAuthJson(profile, target.CodexDirectoryPath);
-            ReplaceConfigToml(profile, target.CodexDirectoryPath);
-            TryMigrateRecentSessionModelProviders(target.CodexDirectoryPath, profile.ProviderCategory, database.SessionMigrationDays);
+            ReplaceConfigToml(profile, target.CodexDirectoryPath, apiKeyProviderName);
+            TryMigrateRecentSessionModelProviders(
+                target.CodexDirectoryPath,
+                profile.ProviderCategory,
+                apiKeyProviderName,
+                database.SessionMigrationDays);
             appliedTargets.Add(target.DisplayName);
         }
 
@@ -245,7 +250,7 @@ public sealed class CodexConfigService
         }
     }
 
-    private void ReplaceConfigToml(CodexProfile profile, string codexDirectoryPath)
+    private void ReplaceConfigToml(CodexProfile profile, string codexDirectoryPath, string apiKeyProviderName)
     {
         var configPath = Path.Combine(codexDirectoryPath, "config.toml");
 
@@ -278,7 +283,9 @@ public sealed class CodexConfigService
         var baseUrl = profile.BaseUrl.Trim();
 
         var apiKeyTemplate = NormalizeLineEndings(_templates.LoadApiKeyTemplate());
-        var rendered = apiKeyTemplate.Replace("{base_url}", ToTomlString(baseUrl), StringComparison.Ordinal);
+        var rendered = apiKeyTemplate
+            .Replace("{base_url}", ToTomlString(baseUrl), StringComparison.Ordinal)
+            .Replace("{provider_name}", ToTomlString(apiKeyProviderName), StringComparison.Ordinal);
         File.WriteAllText(
             configPath,
             EnsureTrailingNewLine(rendered),
@@ -307,11 +314,58 @@ public sealed class CodexConfigService
 
     private static string ToTomlString(string value)
     {
-        var escaped = value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
-        return $"\"{escaped}\"";
+        var builder = new System.Text.StringBuilder(value.Length + 2);
+        builder.Append('"');
+
+        foreach (var ch in value)
+        {
+            switch (ch)
+            {
+                case '\\':
+                    builder.Append("\\\\");
+                    break;
+                case '"':
+                    builder.Append("\\\"");
+                    break;
+                case '\b':
+                    builder.Append("\\b");
+                    break;
+                case '\t':
+                    builder.Append("\\t");
+                    break;
+                case '\n':
+                    builder.Append("\\n");
+                    break;
+                case '\f':
+                    builder.Append("\\f");
+                    break;
+                case '\r':
+                    builder.Append("\\r");
+                    break;
+                default:
+                    if (char.IsControl(ch))
+                    {
+                        builder.Append("\\u");
+                        builder.Append(((int)ch).ToString("X4", CultureInfo.InvariantCulture));
+                    }
+                    else
+                    {
+                        builder.Append(ch);
+                    }
+
+                    break;
+            }
+        }
+
+        builder.Append('"');
+        return builder.ToString();
     }
 
-    private void TryMigrateRecentSessionModelProviders(string codexDirectoryPath, ProviderCategory providerCategory, int sessionMigrationDays)
+    private void TryMigrateRecentSessionModelProviders(
+        string codexDirectoryPath,
+        ProviderCategory providerCategory,
+        string apiKeyProviderName,
+        int sessionMigrationDays)
     {
         try
         {
@@ -327,7 +381,7 @@ public sealed class CodexConfigService
                 return;
             }
 
-            var targetProvider = providerCategory == ProviderCategory.OpenAI ? "openai" : "right";
+            var targetProvider = providerCategory == ProviderCategory.OpenAI ? "openai" : apiKeyProviderName;
             var today = DateTime.Today;
 
             for (var i = 0; i < days; i++)
@@ -375,15 +429,16 @@ public sealed class CodexConfigService
             }
 
             var current = match.Groups["value"].Value;
+            var escapedTargetProvider = EscapeJsonStringValue(targetProvider);
 
-            if (string.Equals(current, targetProvider, StringComparison.Ordinal))
+            if (string.Equals(current, escapedTargetProvider, StringComparison.Ordinal))
             {
                 return;
             }
 
             var newFirstLine = ModelProviderRegex.Replace(
                 firstLine,
-                m => $"{m.Groups["prefix"].Value}{targetProvider}{m.Groups["suffix"].Value}",
+                m => $"{m.Groups["prefix"].Value}{escapedTargetProvider}{m.Groups["suffix"].Value}",
                 count: 1,
                 startat: 0);
 
@@ -513,6 +568,15 @@ public sealed class CodexConfigService
 
     private static string? NormalizeOptionalValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string GetEffectiveApiKeyProviderName(ProfileDatabase database)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return NormalizeOptionalValue(database.ApiKeyProviderName) ?? ProfileDatabase.DefaultApiKeyProviderName;
+    }
+
+    private static string EscapeJsonStringValue(string value) =>
+        JsonEncodedText.Encode(value).ToString();
 
     private sealed record CodexTargetContext(string DisplayName, string CodexDirectoryPath, string BackupsDirectoryPath);
 }

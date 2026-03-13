@@ -26,6 +26,21 @@
                     <ColumnDefinition Width="100" />
                     <ColumnDefinition Width="*" />
                 </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" Opacity="0.8" Text="提供商名" />
+                <TextBox
+                    Grid.Column="1"
+                    x:Name="ProviderNameBox"
+                    PlaceholderText="apikey"
+                    TextChanged="InputBox_TextChanged" />
+            </Grid>
+
+            <TextBlock Opacity="0.6" FontSize="12" Text="这个名称会用于 API Key 模式生成 config.toml，也会用于迁移会话里的 model_provider。" TextWrapping="WrapWholeWords" />
+
+            <Grid ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
                 <TextBlock VerticalAlignment="Center" Opacity="0.8" Text="发行版" />
                 <TextBox
                     Grid.Column="1"

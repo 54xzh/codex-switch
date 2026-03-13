@@ -103,6 +103,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         try
         {
             _database = _store.Load();
+            NormalizeApiKeyProviderName();
             NormalizeAndShowTargetSettings();
             NormalizeAndShowSessionMigrationDays();
             ScheduleDetectedWslEnvironmentRefresh();
@@ -163,6 +164,18 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         _suppressSessionMigrationDaysUpdate = true;
         SessionMigrationDaysBox.Value = Math.Clamp(days, 0, 30);
         _suppressSessionMigrationDaysUpdate = false;
+    }
+
+    private void NormalizeApiKeyProviderName()
+    {
+        var providerName = NormalizeApiKeyProviderName(_database.ApiKeyProviderName);
+        if (string.Equals(_database.ApiKeyProviderName, providerName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        _database.ApiKeyProviderName = providerName;
+        _store.Save(_database);
     }
 
     private void UpdateWslTargetStatusText()
@@ -451,6 +464,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             _codex.TryGetCachedDefaultWslEnvironment(_database, out var cachedDefaultEnvironment);
             var dialog = new SettingsDialog(
                 GetXamlRoot(sender),
+                _database.ApiKeyProviderName,
                 _database.WslDistroName,
                 _database.WslUserName,
                 cachedDefaultEnvironment,
@@ -467,6 +481,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                 return;
             }
 
+            _database.ApiKeyProviderName = NormalizeApiKeyProviderName(dialog.ApiKeyProviderName);
             _database.WslDistroName = dialog.WslDistroName;
             _database.WslUserName = dialog.WslUserName;
             _store.Save(_database);
@@ -793,6 +808,9 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     private static string? NormalizeOptionalValue(string? value) =>
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    private static string NormalizeApiKeyProviderName(string? value) =>
+        NormalizeOptionalValue(value) ?? ProfileDatabase.DefaultApiKeyProviderName;
 
     private sealed record WslDefaultRefreshResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
 
