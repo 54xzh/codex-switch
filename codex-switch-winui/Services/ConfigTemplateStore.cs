@@ -37,8 +37,8 @@ public sealed class ConfigTemplateStore
             "\n",
             new[]
             {
-                "model = \"gpt-5.2\"",
-                "model_reasoning_effort = \"high\""
+                "model = \"gpt-5.4\"",
+                "model_reasoning_effort = \"xhigh\""
             }) + "\n";
 
     public string GetDefaultApiKeyTemplate() =>
@@ -47,8 +47,8 @@ public sealed class ConfigTemplateStore
             new[]
             {
                 "model_provider = \"right\"",
-                "model = \"gpt-5.2\"",
-                "model_reasoning_effort = \"high\"",
+                "model = \"gpt-5.4\"",
+                "model_reasoning_effort = \"xhigh\"",
                 string.Empty,
                 "disable_response_storage = true",
                 string.Empty,
