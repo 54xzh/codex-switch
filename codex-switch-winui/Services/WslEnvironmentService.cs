@@ -24,6 +24,22 @@ public sealed class WslEnvironmentService
         }
     }
 
+    public bool TryResolveEnvironment(string? preferredDistroName, string? preferredUserName, out WslEnvironmentInfo? info, out string errorMessage)
+    {
+        try
+        {
+            info = ResolveEnvironment(preferredDistroName, preferredUserName);
+            errorMessage = string.Empty;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            info = null;
+            errorMessage = ex.Message;
+            return false;
+        }
+    }
+
     public WslEnvironmentInfo GetDefaultEnvironment()
     {
         var distroName = RunWslShell("printf '%s' \"$WSL_DISTRO_NAME\"");
@@ -48,6 +64,40 @@ public sealed class WslEnvironmentService
         return new WslEnvironmentInfo(
             distroName.Trim(),
             userName.Trim(),
+            NormalizeLinuxPath(homeDirectory));
+    }
+
+    public WslEnvironmentInfo ResolveEnvironment(string? preferredDistroName, string? preferredUserName)
+    {
+        var configuredDistroName = NormalizeOptionalValue(preferredDistroName);
+        var configuredUserName = NormalizeOptionalValue(preferredUserName);
+
+        WslEnvironmentInfo? defaultInfo = null;
+        if (configuredDistroName is null || configuredUserName is null)
+        {
+            defaultInfo = GetDefaultEnvironment();
+        }
+
+        var distroName = configuredDistroName ?? defaultInfo?.DistroName;
+        var userName = configuredUserName ?? defaultInfo?.UserName;
+
+        if (string.IsNullOrWhiteSpace(distroName))
+        {
+            throw new InvalidOperationException("未能识别 WSL 发行版，请先在设置中填写。");
+        }
+
+        if (string.IsNullOrWhiteSpace(userName))
+        {
+            throw new InvalidOperationException("未能识别 WSL 用户名，请先在设置中填写。");
+        }
+
+        var homeDirectory = configuredUserName is null
+            ? defaultInfo?.HomeDirectory ?? $"/home/{userName}"
+            : $"/home/{userName}";
+
+        return new WslEnvironmentInfo(
+            distroName,
+            userName,
             NormalizeLinuxPath(homeDirectory));
     }
 
@@ -132,6 +182,16 @@ public sealed class WslEnvironmentService
     {
         var normalized = path.Trim().Replace('\\', '/');
         return normalized.StartsWith("/", StringComparison.Ordinal) ? normalized : "/" + normalized;
+    }
+
+    private static string? NormalizeOptionalValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim();
     }
 }
 

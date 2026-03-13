@@ -125,6 +125,11 @@
                             <FontIcon Glyph="&#xE8C8;" />
                         </AppBarButton.Icon>
                     </AppBarButton>
+                    <AppBarButton Click="Settings_Click" Label="设置">
+                        <AppBarButton.Icon>
+                            <FontIcon Glyph="&#xE713;" />
+                        </AppBarButton.Icon>
+                    </AppBarButton>
                 </CommandBar>
 
                 <StackPanel Grid.Row="1" Spacing="12" VerticalAlignment="Top">

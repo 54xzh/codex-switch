@@ -10,6 +10,8 @@ public sealed class ProfileDatabase
 
     public bool ReplaceWindowsTarget { get; set; } = true;
     public bool ReplaceWslTarget { get; set; }
+    public string? WslDistroName { get; set; }
+    public string? WslUserName { get; set; }
 
     public int SessionMigrationDays { get; set; } = 3;
 }

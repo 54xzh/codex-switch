@@ -32,6 +32,12 @@ public sealed class CodexConfigService
     public bool TryGetDefaultWslEnvironment(out WslEnvironmentInfo? info, out string errorMessage) =>
         _wsl.TryGetDefaultEnvironment(out info, out errorMessage);
 
+    public bool TryResolveWslEnvironment(ProfileDatabase database, out WslEnvironmentInfo? info, out string errorMessage)
+    {
+        ArgumentNullException.ThrowIfNull(database);
+        return _wsl.TryResolveEnvironment(database.WslDistroName, database.WslUserName, out info, out errorMessage);
+    }
+
     public IReadOnlyList<string> ApplyProfile(CodexProfile profile, ProfileDatabase database)
     {
         ArgumentNullException.ThrowIfNull(profile);
@@ -114,7 +120,7 @@ public sealed class CodexConfigService
 
         if (database.ReplaceWslTarget)
         {
-            var info = _wsl.GetDefaultEnvironment();
+            var info = _wsl.ResolveEnvironment(database.WslDistroName, database.WslUserName);
             var codexLinuxPath = CombineLinuxPath(info.HomeDirectory, ".codex");
             var codexWindowsPath = _wsl.ToWindowsPath(info.DistroName, codexLinuxPath);
             var backupLeaf = $"{SanitizeDirectorySegment(info.DistroName)}-{SanitizeDirectorySegment(info.UserName)}";

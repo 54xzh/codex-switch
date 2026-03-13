@@ -1,0 +1,77 @@
+<ContentDialog
+    x:Class="codex_switch_winui.Dialogs.SettingsDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="{StaticResource StandardMargin}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <InfoBar
+            x:Name="ErrorBar"
+            IsOpen="False"
+            IsClosable="True"
+            Severity="Error" />
+
+        <StackPanel Grid.Row="1" Margin="0,12,0,0" Spacing="12">
+            <TextBlock Opacity="0.8" Text="这里可以指定 WSL 目标。留空时会自动使用默认发行版和默认用户。" TextWrapping="WrapWholeWords" />
+
+            <Grid ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" Opacity="0.8" Text="发行版" />
+                <TextBox
+                    Grid.Column="1"
+                    x:Name="DistroNameBox"
+                    PlaceholderText="例如 Ubuntu"
+                    TextChanged="InputBox_TextChanged" />
+            </Grid>
+
+            <Grid ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" Opacity="0.8" Text="用户名" />
+                <TextBox
+                    Grid.Column="1"
+                    x:Name="UserNameBox"
+                    PlaceholderText="例如 xzh"
+                    TextChanged="InputBox_TextChanged" />
+            </Grid>
+
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Click="UseDetectedDefaults_Click" Content="填入默认值" />
+                <TextBlock
+                    x:Name="DetectedDefaultsTextBlock"
+                    VerticalAlignment="Center"
+                    FontSize="12"
+                    Opacity="0.6"
+                    Text="正在读取默认 WSL 信息..." />
+            </StackPanel>
+
+            <Border
+                Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Padding="12">
+                <StackPanel Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="预览" />
+                    <TextBlock
+                        x:Name="PreviewTextBlock"
+                        FontSize="12"
+                        Opacity="0.7"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </Grid>
+</ContentDialog>

@@ -176,15 +176,22 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             return;
         }
 
-        if (_codex.TryGetDefaultWslEnvironment(out var info, out var errorMessage) && info is not null)
+        if (_codex.TryResolveWslEnvironment(_database, out var info, out var errorMessage) && info is not null)
         {
             var codexPath = $"{info.HomeDirectory.TrimEnd('/')}/.codex";
-            WslTargetStatusTextBlock.Text = $"WSL 目标：{info.DistroName} / {info.UserName} -> {codexPath}";
+            var sourceText = HasCustomWslSettings()
+                ? "已使用设置里的值"
+                : "自动识别";
+            WslTargetStatusTextBlock.Text = $"WSL 目标：{info.DistroName} / {info.UserName} -> {codexPath}（{sourceText}）";
             return;
         }
 
         WslTargetStatusTextBlock.Text = $"WSL 自动识别失败：{errorMessage}";
     }
+
+    private bool HasCustomWslSettings() =>
+        !string.IsNullOrWhiteSpace(_database.WslDistroName)
+        || !string.IsNullOrWhiteSpace(_database.WslUserName);
 
     private async void Add_Click(object sender, RoutedEventArgs e)
     {
@@ -430,6 +437,32 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         {
             var window = new TemplateEditorWindow();
             window.Activate();
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("打开失败", ex.Message, sender);
+        }
+    }
+
+    private async void Settings_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new SettingsDialog(
+                GetXamlRoot(sender),
+                _database.WslDistroName,
+                _database.WslUserName);
+
+            var result = await dialog.ShowAsync();
+            if (result != ContentDialogResult.Primary)
+            {
+                return;
+            }
+
+            _database.WslDistroName = dialog.WslDistroName;
+            _database.WslUserName = dialog.WslUserName;
+            _store.Save(_database);
+            UpdateWslTargetStatusText();
         }
         catch (Exception ex)
         {
