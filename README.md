@@ -1,5 +1,7 @@
 # Codex Switch (WinUI)
-
+<p align="center">
+  <img src="./Screenshot.png" alt="截图" width="600">
+</p>
 在 Windows 上快速切换 Codex 的 `~/.codex/auth.json` 与 `~/.codex/config.toml`，支持替换到 Windows、默认 WSL，切换前自动备份，并支持一键恢复。
 
 ## 快速使用
