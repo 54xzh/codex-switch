@@ -6,6 +6,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Microsoft.Data.Sqlite;
 using codex_switch_winui.Models;
 
 namespace codex_switch_winui.Services;
@@ -15,6 +16,9 @@ public sealed class CodexConfigService
     private static readonly Regex ModelProviderRegex = new(
         "(?<prefix>\"model_provider\"\\s*:\\s*\")(?<value>[^\"\\\\]*(?:\\\\.[^\"\\\\]*)*)(?<suffix>\")",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    private static readonly Regex SessionIdFileNameRegex = new(
+        "(?<id>[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\\.jsonl$",
+        RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     private readonly ConfigTemplateStore _templates = new();
     private readonly WslEnvironmentService _wsl = new();
@@ -384,6 +388,7 @@ public sealed class CodexConfigService
 
             var targetProvider = providerCategory == ProviderCategory.OpenAI ? "openai" : apiKeyProviderName;
             var today = DateTime.Today;
+            var sessionIdsToSync = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             for (var i = 0; i < days; i++)
             {
@@ -401,9 +406,15 @@ public sealed class CodexConfigService
 
                 foreach (var filePath in Directory.EnumerateFiles(dayDir, "*.jsonl", SearchOption.TopDirectoryOnly))
                 {
-                    TryRewriteSessionFirstLineModelProvider(filePath, targetProvider);
+                    var outcome = TryRewriteSessionFirstLineModelProvider(filePath, targetProvider);
+                    if (outcome.ShouldSyncDatabase && outcome.SessionId is { Length: > 0 } sessionId)
+                    {
+                        sessionIdsToSync.Add(sessionId);
+                    }
                 }
             }
+
+            TryRewriteStateThreadModelProvider(codexDirectoryPath, targetProvider, sessionIdsToSync);
         }
         catch
         {
@@ -411,7 +422,7 @@ public sealed class CodexConfigService
         }
     }
 
-    private static void TryRewriteSessionFirstLineModelProvider(string filePath, string targetProvider)
+    private static SessionMigrationOutcome TryRewriteSessionFirstLineModelProvider(string filePath, string targetProvider)
     {
         try
         {
@@ -420,21 +431,22 @@ public sealed class CodexConfigService
             var firstLine = reader.ReadLine();
             if (string.IsNullOrWhiteSpace(firstLine))
             {
-                return;
+                return SessionMigrationOutcome.Skip;
             }
 
             var match = ModelProviderRegex.Match(firstLine);
             if (!match.Success)
             {
-                return;
+                return SessionMigrationOutcome.Skip;
             }
 
+            var sessionId = TryGetSessionId(filePath, firstLine);
             var current = match.Groups["value"].Value;
             var escapedTargetProvider = EscapeJsonStringValue(targetProvider);
 
             if (string.Equals(current, escapedTargetProvider, StringComparison.Ordinal))
             {
-                return;
+                return new SessionMigrationOutcome(sessionId, !string.IsNullOrWhiteSpace(sessionId));
             }
 
             var newFirstLine = ModelProviderRegex.Replace(
@@ -463,10 +475,100 @@ public sealed class CodexConfigService
 
             File.Copy(tempPath, filePath, overwrite: true);
             File.Delete(tempPath);
+            return new SessionMigrationOutcome(sessionId, !string.IsNullOrWhiteSpace(sessionId));
+        }
+        catch
+        {
+            return SessionMigrationOutcome.Skip;
+        }
+    }
+
+    private static void TryRewriteStateThreadModelProvider(
+        string codexDirectoryPath,
+        string targetProvider,
+        IEnumerable<string> sessionIds)
+    {
+        try
+        {
+            var ids = sessionIds
+                .Where(static id => !string.IsNullOrWhiteSpace(id))
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            if (ids.Count == 0)
+            {
+                return;
+            }
+
+            var sqlitePath = Path.Combine(codexDirectoryPath, "state_5.sqlite");
+            if (!File.Exists(sqlitePath))
+            {
+                return;
+            }
+
+            var connectionString = new SqliteConnectionStringBuilder
+            {
+                DataSource = sqlitePath,
+                Mode = SqliteOpenMode.ReadWrite,
+                DefaultTimeout = 3
+            }.ToString();
+
+            using var connection = new SqliteConnection(connectionString);
+            connection.Open();
+
+            using var transaction = connection.BeginTransaction();
+            using var command = connection.CreateCommand();
+            command.Transaction = transaction;
+            command.CommandText = "UPDATE threads SET model_provider = $modelProvider WHERE id = $id";
+            command.Parameters.AddWithValue("$modelProvider", targetProvider);
+            var idParameter = command.Parameters.Add("$id", SqliteType.Text);
+
+            foreach (var sessionId in ids)
+            {
+                idParameter.Value = sessionId;
+                command.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
         }
         catch
         {
             // ignore
+        }
+    }
+
+    private static string? TryGetSessionId(string filePath, string firstLine)
+    {
+        var sessionId = TryGetSessionIdFromFileName(filePath);
+        return sessionId ?? TryGetSessionIdFromSessionMeta(firstLine);
+    }
+
+    private static string? TryGetSessionIdFromFileName(string filePath)
+    {
+        var match = SessionIdFileNameRegex.Match(Path.GetFileName(filePath));
+        return match.Success ? match.Groups["id"].Value : null;
+    }
+
+    private static string? TryGetSessionIdFromSessionMeta(string firstLine)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(firstLine);
+            if (!document.RootElement.TryGetProperty("payload", out var payload))
+            {
+                return null;
+            }
+
+            if (!payload.TryGetProperty("id", out var idElement))
+            {
+                return null;
+            }
+
+            return NormalizeOptionalValue(idElement.GetString());
+        }
+        catch
+        {
+            return null;
         }
     }
 
@@ -584,6 +686,11 @@ public sealed class CodexConfigService
 
     private static string EscapeJsonStringValue(string value) =>
         JsonEncodedText.Encode(value).ToString();
+
+    private readonly record struct SessionMigrationOutcome(string? SessionId, bool ShouldSyncDatabase)
+    {
+        public static SessionMigrationOutcome Skip => new(null, false);
+    }
 
     private sealed record CodexTargetContext(string DisplayName, string CodexDirectoryPath, string BackupsDirectoryPath);
 }

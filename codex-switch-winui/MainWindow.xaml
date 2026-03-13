@@ -209,7 +209,7 @@
                                         ValueChanged="SessionMigrationDaysBox_ValueChanged" />
                                     <TextBlock Opacity="0.6" VerticalAlignment="Center" Text="0 表示关闭" />
                                 </StackPanel>
-                                <TextBlock Opacity="0.6" FontSize="12" Text="切换组合时，仅迁移最近 N 天 sessions 的 model_provider。" />
+                                <TextBlock Opacity="0.6" FontSize="12" Text="切换组合时，会同步迁移最近 N 天 sessions 和 state_5.sqlite 中的 model_provider。" />
                             </StackPanel>
                         </StackPanel>
                     </Grid>

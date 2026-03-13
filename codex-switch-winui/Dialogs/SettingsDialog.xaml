@@ -34,7 +34,7 @@
                     TextChanged="InputBox_TextChanged" />
             </Grid>
 
-            <TextBlock Opacity="0.6" FontSize="12" Text="这个名称会用于 API Key 模式生成 config.toml，也会用于迁移会话里的 model_provider。" TextWrapping="WrapWholeWords" />
+            <TextBlock Opacity="0.6" FontSize="12" Text="这个名称会用于 API Key 模式生成 config.toml，也会用于迁移会话文件和 state_5.sqlite 里的 model_provider。" TextWrapping="WrapWholeWords" />
 
             <Grid ColumnSpacing="{StaticResource StandardSpacing}">
                 <Grid.ColumnDefinitions>
