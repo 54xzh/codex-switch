@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="codex_switch_winui.TemplateEditorWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    Title="配置模板">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid Padding="{StaticResource LargeMargin}" RowSpacing="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TextBlock
+            Grid.Row="0"
+            Style="{StaticResource HeaderTextBlockStyle}"
+            Text="编辑 config.toml 模板" />
+
+        <Grid Grid.Row="1" Style="{StaticResource CardGridStyle}" Padding="{StaticResource CardPadding}">
+            <Pivot x:Name="TemplatePivot">
+                <PivotItem Header="OpenAI（ProviderCategory.OpenAI）">
+                    <Grid RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock
+                            Grid.Row="0"
+                            Opacity="0.7"
+                            Text="该模板用于 ProviderCategory=OpenAI 时生成 ~/.codex/config.toml。" />
+                        <TextBox
+                            Grid.Row="1"
+                            x:Name="OpenAiTemplateBox"
+                            AcceptsReturn="True"
+                            FontFamily="Consolas"
+                            FontSize="13"
+                            HorizontalAlignment="Stretch"
+                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                            TextWrapping="NoWrap"
+                            VerticalAlignment="Stretch"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                    </Grid>
+                </PivotItem>
+
+                <PivotItem Header="APIKEY（ProviderCategory.ApiKey）">
+                    <Grid RowSpacing="12">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Grid.Row="0" Opacity="0.7" Text="可用变量：{base_url}（自动转为 TOML 字符串）。" />
+                        <TextBox
+                            Grid.Row="1"
+                            x:Name="ApiKeyTemplateBox"
+                            AcceptsReturn="True"
+                            FontFamily="Consolas"
+                            FontSize="13"
+                            HorizontalAlignment="Stretch"
+                            ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                            TextWrapping="NoWrap"
+                            VerticalAlignment="Stretch"
+                            ScrollViewer.VerticalScrollBarVisibility="Auto" />
+                    </Grid>
+                </PivotItem>
+            </Pivot>
+        </Grid>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="12">
+            <Button Click="Save_Click" Content="保存" />
+            <Button Click="ResetCurrent_Click" Content="重置当前为默认" />
+            <Button Click="Close_Click" Content="关闭" />
+        </StackPanel>
+    </Grid>
+</Window>

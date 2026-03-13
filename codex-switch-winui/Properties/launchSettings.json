@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "codex-switch-winui (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "codex-switch-winui (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

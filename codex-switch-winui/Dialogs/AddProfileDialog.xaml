@@ -1,0 +1,139 @@
+<ContentDialog
+    x:Class="codex_switch_winui.Dialogs.AddProfileDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Grid Padding="{StaticResource StandardMargin}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <InfoBar
+            x:Name="ErrorBar"
+            IsOpen="False"
+            IsClosable="True"
+            Severity="Error" />
+
+        <StackPanel Grid.Row="1" Margin="0,12,0,0" Spacing="12">
+            <Grid ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Center" Opacity="0.8" Text="名称" />
+                <TextBox Grid.Column="1" x:Name="NameBox" PlaceholderText="给配置起个名字" />
+            </Grid>
+
+            <Grid ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Top" Margin="0,8,0,0" Opacity="0.8" Text="提供商" />
+
+                <StackPanel Grid.Column="1" Spacing="8">
+                    <RadioButtons MaxColumns="2">
+                        <RadioButton
+                            x:Name="ProviderApiKeyRadio"
+                            Checked="ProviderCategory_Checked"
+                            Content="APIKEY"
+                            IsChecked="True" />
+                        <RadioButton
+                            x:Name="ProviderOpenAiRadio"
+                            Checked="ProviderCategory_Checked"
+                            Content="OpenAI" />
+                    </RadioButtons>
+                </StackPanel>
+            </Grid>
+
+            <Grid x:Name="ConfigSection" ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Top" Margin="0,8,0,0" Opacity="0.8" Text="配置方式" />
+
+                <StackPanel Grid.Column="1" Spacing="8">
+                    <RadioButtons MaxColumns="2">
+                        <RadioButton
+                            x:Name="BaseUrlModeRadio"
+                            Checked="ConfigMode_Checked"
+                            Content="输入 Base URL（生成 config.toml）"
+                            IsChecked="True" />
+                        <RadioButton
+                            x:Name="ImportConfigModeRadio"
+                            Checked="ConfigMode_Checked"
+                            Content="导入 config.toml（直接替换）" />
+                    </RadioButtons>
+
+                    <Grid x:Name="BaseUrlPanel">
+                        <TextBox
+                            x:Name="BaseUrlBox"
+                            PlaceholderText="例如 https://api.openai.com/v1" />
+                    </Grid>
+
+                    <Grid x:Name="ConfigTomlPanel" ColumnSpacing="8" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="ConfigPathBox"
+                            IsReadOnly="True"
+                            PlaceholderText="请选择 config.toml" />
+                        <Button
+                            Grid.Column="1"
+                            Click="BrowseConfigToml_Click"
+                            Content="浏览..." />
+                    </Grid>
+                </StackPanel>
+            </Grid>
+
+            <Grid ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Top" Margin="0,8,0,0" Opacity="0.8" Text="认证方式" />
+
+                <StackPanel Grid.Column="1" Spacing="8">
+                    <RadioButtons x:Name="AuthModeRadioButtons" MaxColumns="2">
+                        <RadioButton
+                            x:Name="AuthJsonRadio"
+                            Checked="AuthMode_Checked"
+                            Content="使用 auth.json 文件"
+                            IsChecked="True" />
+                        <RadioButton
+                            x:Name="ApiKeyRadio"
+                            Checked="AuthMode_Checked"
+                            Content="直接输入 Key" />
+                    </RadioButtons>
+
+                    <Grid x:Name="AuthJsonPanel" Margin="0,4,0,0" ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox
+                            x:Name="AuthPathBox"
+                            IsReadOnly="True"
+                            PlaceholderText="请选择 auth.json" />
+                        <Button
+                            Grid.Column="1"
+                            Click="Browse_Click"
+                            Content="浏览..." />
+                    </Grid>
+
+                    <StackPanel x:Name="ApiKeyPanel" Margin="0,4,0,0" Visibility="Collapsed" Spacing="4">
+                        <TextBlock Opacity="0.6" FontSize="12" Text="请输入 API Key:" />
+                        <PasswordBox x:Name="ApiKeyBox" PlaceholderText="sk-..." />
+                    </StackPanel>
+                </StackPanel>
+            </Grid>
+        </StackPanel>
+    </Grid>
+</ContentDialog>

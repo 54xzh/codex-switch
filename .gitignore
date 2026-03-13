@@ -1,0 +1,50 @@
+# Visual Studio / MSBuild
+.vs/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Build outputs
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+artifacts/
+
+# VS Code / JetBrains
+.vscode/
+.idea/
+*.sln.iml
+
+# NuGet packages / artifacts
+*.nupkg
+*.snupkg
+**/packages/*
+!**/packages/build/
+!**/packages/repositories.config
+
+# MSIX / Windows app packaging outputs
+AppPackages/
+BundleArtifacts/
+*.appx
+*.appxbundle
+*.appxupload
+*.appxsym
+*.msix
+*.msixbundle
+*.msixupload
+*.appinstaller
+
+# Certificates / keys (do not commit private keys)
+*.pfx
+*.p12
+*.pem
+*.key
+
+# Windows
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/

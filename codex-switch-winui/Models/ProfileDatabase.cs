@@ -1,0 +1,15 @@
+using System;
+using System.Collections.Generic;
+
+namespace codex_switch_winui.Models;
+
+public sealed class ProfileDatabase
+{
+    public List<CodexProfile> Profiles { get; set; } = new();
+    public Guid? LastSelectedProfileId { get; set; }
+
+    public bool ReplaceWindowsTarget { get; set; } = true;
+    public bool ReplaceWslTarget { get; set; }
+
+    public int SessionMigrationDays { get; set; } = 3;
+}
