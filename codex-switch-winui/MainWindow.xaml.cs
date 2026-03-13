@@ -810,7 +810,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string NormalizeApiKeyProviderName(string? value) =>
-        NormalizeOptionalValue(value) ?? ProfileDatabase.DefaultApiKeyProviderName;
+        ApiKeyProviderNameRules.NormalizeOrDefault(value);
 
     private sealed record WslDefaultRefreshResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
 

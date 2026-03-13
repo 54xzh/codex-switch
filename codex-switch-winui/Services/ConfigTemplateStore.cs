@@ -26,8 +26,10 @@ public sealed class ConfigTemplateStore
     {
         var template = LoadOrCreate(ApiKeyTemplatePath, GetDefaultApiKeyTemplate());
         var legacyDefault = NormalizeLineEndings(GetLegacyDefaultApiKeyTemplate());
+        var previousVariableDefault = NormalizeLineEndings(GetQuotedProviderNameApiKeyTemplate());
 
-        if (!string.Equals(template, legacyDefault, StringComparison.Ordinal))
+        if (!string.Equals(template, legacyDefault, StringComparison.Ordinal)
+            && !string.Equals(template, previousVariableDefault, StringComparison.Ordinal))
         {
             return template;
         }
@@ -55,6 +57,24 @@ public sealed class ConfigTemplateStore
             }) + "\n";
 
     public string GetDefaultApiKeyTemplate() =>
+        string.Join(
+            "\n",
+            new[]
+            {
+                "model_provider = {provider_name}",
+                "model = \"gpt-5.4\"",
+                "model_reasoning_effort = \"xhigh\"",
+                string.Empty,
+                "disable_response_storage = true",
+                string.Empty,
+                "[model_providers.{provider_key}]",
+                "name = {provider_name}",
+                "base_url = {base_url}",
+                "wire_api = \"responses\"",
+                "requires_openai_auth = true"
+            }) + "\n";
+
+    private static string GetQuotedProviderNameApiKeyTemplate() =>
         string.Join(
             "\n",
             new[]

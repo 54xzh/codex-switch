@@ -285,7 +285,8 @@ public sealed class CodexConfigService
         var apiKeyTemplate = NormalizeLineEndings(_templates.LoadApiKeyTemplate());
         var rendered = apiKeyTemplate
             .Replace("{base_url}", ToTomlString(baseUrl), StringComparison.Ordinal)
-            .Replace("{provider_name}", ToTomlString(apiKeyProviderName), StringComparison.Ordinal);
+            .Replace("{provider_name}", ToTomlString(apiKeyProviderName), StringComparison.Ordinal)
+            .Replace("{provider_key}", apiKeyProviderName, StringComparison.Ordinal);
         File.WriteAllText(
             configPath,
             EnsureTrailingNewLine(rendered),
@@ -572,7 +573,13 @@ public sealed class CodexConfigService
     private static string GetEffectiveApiKeyProviderName(ProfileDatabase database)
     {
         ArgumentNullException.ThrowIfNull(database);
-        return NormalizeOptionalValue(database.ApiKeyProviderName) ?? ProfileDatabase.DefaultApiKeyProviderName;
+        var providerName = ApiKeyProviderNameRules.NormalizeOrDefault(database.ApiKeyProviderName);
+        if (!ApiKeyProviderNameRules.IsValidBareKey(providerName))
+        {
+            throw new InvalidOperationException("设置里的 API Key 提供商名无效。请只使用字母、数字、下划线或短横线。");
+        }
+
+        return providerName;
     }
 
     private static string EscapeJsonStringValue(string value) =>

@@ -88,7 +88,15 @@ public sealed partial class SettingsDialog : ContentDialog
             return;
         }
 
-        ApiKeyProviderName = GetEffectiveApiKeyProviderName(ProviderNameBox.Text);
+        var providerName = GetEffectiveApiKeyProviderName(ProviderNameBox.Text);
+        if (!ApiKeyProviderNameRules.IsValidBareKey(providerName))
+        {
+            args.Cancel = true;
+            ShowValidationError("提供商名只能包含字母、数字、下划线或短横线。这样才能生成 [model_providers.apikey] 这种表名。");
+            return;
+        }
+
+        ApiKeyProviderName = providerName;
         WslDistroName = distroName;
         WslUserName = userName;
         ErrorBar.IsOpen = false;
@@ -206,7 +214,7 @@ public sealed partial class SettingsDialog : ContentDialog
         string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 
     private static string GetEffectiveApiKeyProviderName(string? value) =>
-        NormalizeOptionalValue(value) ?? ProfileDatabase.DefaultApiKeyProviderName;
+        ApiKeyProviderNameRules.NormalizeOrDefault(value);
 
     private sealed record RefreshDetectedDefaultsResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
 }
