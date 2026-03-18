@@ -42,6 +42,7 @@
             <Style TargetType="ContentDialog">
                 <Setter Property="CornerRadius" Value="{ThemeResource OverlayCornerRadius}" />
             </Style>
+
         </ResourceDictionary>
     </Application.Resources>
 </Application>

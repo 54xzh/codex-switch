@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using codex_switch_winui.Dialogs;
 using codex_switch_winui.Models;
@@ -21,6 +22,12 @@ namespace codex_switch_winui;
 
 public sealed partial class MainWindow : Window, INotifyPropertyChanged
 {
+    private const uint MessageBoxOk = 0x00000000;
+    private const uint MessageBoxOkCancel = 0x00000001;
+    private const uint MessageBoxIconError = 0x00000010;
+    private const uint MessageBoxIconInformation = 0x00000040;
+    private const int MessageBoxResultOk = 1;
+
     private readonly ProfileStore _store = new();
     private readonly CodexConfigService _codex = new();
 
@@ -98,6 +105,9 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
+
     public MainWindow()
     {
         InitializeComponent();
@@ -145,7 +155,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            _startupErrorMessage = ex.Message;
+            _startupErrorMessage = FormatExceptionMessage(ex);
         }
     }
 
@@ -276,7 +286,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("添加失败", ex.Message, sender);
+            await ShowErrorAsync("添加失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -317,7 +327,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("编辑失败", ex.Message, sender);
+            await ShowErrorAsync("编辑失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -343,7 +353,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("删除失败", ex.Message, sender);
+            await ShowErrorAsync("删除失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -401,7 +411,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            errorMessage = ex.Message;
+            errorMessage = FormatExceptionMessage(ex);
         }
         finally
         {
@@ -465,7 +475,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("打开失败", ex.Message, sender);
+            await ShowErrorAsync("打开失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -484,7 +494,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("打开失败", ex.Message, sender);
+            await ShowErrorAsync("打开失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -497,7 +507,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("打开失败", ex.Message, sender);
+            await ShowErrorAsync("打开失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -534,7 +544,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("打开失败", ex.Message, sender);
+            await ShowErrorAsync("打开失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -553,7 +563,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            await ShowErrorAsync("恢复失败", ex.Message, sender);
+            await ShowErrorAsync("恢复失败", FormatExceptionMessage(ex), sender);
         }
     }
 
@@ -564,18 +574,26 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         var xamlRoot = TryGetXamlRoot(sender);
         if (xamlRoot is null)
         {
+            ShowNativeMessageBox(title, message, MessageBoxOk | MessageBoxIconInformation);
             return;
         }
 
-        var dialog = new ContentDialog
+        try
         {
-            XamlRoot = xamlRoot,
-            Title = title,
-            Content = message,
-            CloseButtonText = "确定",
-            DefaultButton = ContentDialogButton.Close
-        };
-        await dialog.ShowAsync();
+            var dialog = new ContentDialog
+            {
+                XamlRoot = xamlRoot,
+                Title = title,
+                Content = message,
+                CloseButtonText = "确定",
+                DefaultButton = ContentDialogButton.Close
+            };
+            await dialog.ShowAsync();
+        }
+        catch
+        {
+            ShowNativeMessageBox(title, message, MessageBoxOk | MessageBoxIconInformation);
+        }
     }
 
     private async Task ShowErrorAsync(string title, string message, object? sender = null)
@@ -583,18 +601,59 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         var xamlRoot = TryGetXamlRoot(sender);
         if (xamlRoot is null)
         {
+            ShowNativeMessageBox(title, message, MessageBoxOk | MessageBoxIconError);
             return;
         }
 
-        var dialog = new ContentDialog
+        try
         {
-            XamlRoot = xamlRoot,
-            Title = title,
-            Content = message,
-            CloseButtonText = "确定",
-            DefaultButton = ContentDialogButton.Close
-        };
-        await dialog.ShowAsync();
+            var dialog = new ContentDialog
+            {
+                XamlRoot = xamlRoot,
+                Title = title,
+                Content = message,
+                CloseButtonText = "确定",
+                DefaultButton = ContentDialogButton.Close
+            };
+            await dialog.ShowAsync();
+        }
+        catch
+        {
+            ShowNativeMessageBox(title, message, MessageBoxOk | MessageBoxIconError);
+        }
+    }
+
+    private static string FormatExceptionMessage(Exception ex)
+    {
+        var message = string.IsNullOrWhiteSpace(ex.Message) ? ex.GetType().Name : ex.Message;
+        var details = $"{ex.GetType().Name} (0x{ex.HResult:X8})";
+        var lineNumber = TryGetExceptionProperty(ex, "LineNumber");
+        var linePosition = TryGetExceptionProperty(ex, "LinePosition");
+        var baseUri = TryGetExceptionProperty(ex, "BaseUri");
+
+        if (!string.IsNullOrWhiteSpace(lineNumber) && lineNumber != "0")
+        {
+            details += string.IsNullOrWhiteSpace(linePosition) || linePosition == "0"
+                ? $"\n行号：{lineNumber}"
+                : $"\n位置：第 {lineNumber} 行，第 {linePosition} 列";
+        }
+
+        if (!string.IsNullOrWhiteSpace(baseUri))
+        {
+            details += $"\n资源：{baseUri}";
+        }
+
+        if (ex.InnerException is null)
+        {
+            return ShouldAppendFullExceptionText(ex)
+                ? $"{message}\n\n{details}\n\n详细信息：\n{ex}"
+                : $"{message}\n\n{details}";
+        }
+
+        var fullMessage = $"{message}\n\n{details}\n内部异常：{ex.InnerException.GetType().Name}: {ex.InnerException.Message}";
+        return ShouldAppendFullExceptionText(ex)
+            ? $"{fullMessage}\n\n详细信息：\n{ex}"
+            : fullMessage;
     }
 
     private async Task<bool> ShowConfirmAsync(string title, string message, string primaryText, object? sender = null)
@@ -602,22 +661,58 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         var xamlRoot = TryGetXamlRoot(sender);
         if (xamlRoot is null)
         {
-            return false;
+            return ShowNativeMessageBox(title, message, MessageBoxOkCancel | MessageBoxIconInformation) == MessageBoxResultOk;
         }
 
-        var dialog = new ContentDialog
+        try
         {
-            XamlRoot = xamlRoot,
-            Title = title,
-            Content = message,
-            PrimaryButtonText = primaryText,
-            CloseButtonText = "取消",
-            DefaultButton = ContentDialogButton.Close
-        };
+            var dialog = new ContentDialog
+            {
+                XamlRoot = xamlRoot,
+                Title = title,
+                Content = message,
+                PrimaryButtonText = primaryText,
+                CloseButtonText = "取消",
+                DefaultButton = ContentDialogButton.Close
+            };
 
-        var result = await dialog.ShowAsync();
-        return result == ContentDialogResult.Primary;
+            var result = await dialog.ShowAsync();
+            return result == ContentDialogResult.Primary;
+        }
+        catch
+        {
+            return ShowNativeMessageBox(title, message, MessageBoxOkCancel | MessageBoxIconInformation) == MessageBoxResultOk;
+        }
     }
+
+    private static string? TryGetExceptionProperty(Exception ex, string propertyName)
+    {
+        try
+        {
+            var property = ex.GetType().GetProperty(propertyName);
+            var value = property?.GetValue(ex);
+            return value?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private int ShowNativeMessageBox(string title, string message, uint type)
+    {
+        try
+        {
+            return MessageBoxW(GetWindowHandle(), message, title, type);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static bool ShouldAppendFullExceptionText(Exception ex) =>
+        ex.GetType().Name.Contains("XamlParseException", StringComparison.Ordinal);
 
     private XamlRoot GetXamlRoot(object? sender = null) =>
         TryGetXamlRoot(sender) ?? throw new InvalidOperationException("XamlRoot 尚未就绪，请先等待窗口显示后再试。");
