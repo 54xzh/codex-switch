@@ -214,17 +214,33 @@ public sealed class ProviderConnectionTestService
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+        var input = new object[]
+        {
+            new
+            {
+                role = "user",
+                content = new object[]
+                {
+                    new
+                    {
+                        type = "input_text",
+                        text = "ping"
+                    }
+                }
+            }
+        };
+
         var payload = includeMaxOutputTokens
             ? JsonSerializer.Serialize(new
             {
                 model = model.Trim(),
-                input = "ping",
+                input,
                 max_output_tokens = 1
             })
             : JsonSerializer.Serialize(new
             {
                 model = model.Trim(),
-                input = "ping"
+                input
             });
         request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
@@ -346,6 +362,12 @@ public sealed class ProviderConnectionTestService
                 && messageElement.ValueKind == JsonValueKind.String)
             {
                 return messageElement.GetString();
+            }
+
+            if (document.RootElement.TryGetProperty("detail", out var detailElement)
+                && detailElement.ValueKind == JsonValueKind.String)
+            {
+                return detailElement.GetString();
             }
         }
         catch (JsonException)
