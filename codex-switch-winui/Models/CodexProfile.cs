@@ -7,6 +7,7 @@ public sealed class CodexProfile
     public Guid Id { get; set; }
     public string Name { get; set; } = string.Empty;
     public string BaseUrl { get; set; } = string.Empty;
+    public string? TestModel { get; set; }
 
     public ProviderCategory ProviderCategory { get; set; } = ProviderCategory.ApiKey;
 

@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 using codex_switch_winui.Dialogs;
 using codex_switch_winui.Models;
@@ -27,9 +28,11 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private const uint MessageBoxIconError = 0x00000010;
     private const uint MessageBoxIconInformation = 0x00000040;
     private const int MessageBoxResultOk = 1;
+    private const string DefaultConnectionTestModel = "gpt-5.4-mini";
 
     private readonly ProfileStore _store = new();
     private readonly CodexConfigService _codex = new();
+    private readonly ProviderConnectionTestService _providerConnectionTest = new();
 
     private ProfileDatabase _database = new();
     private bool _isRefreshingDefaultWslEnvironment;
@@ -39,6 +42,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private IntPtr _windowHandle;
     private string? _startupErrorMessage;
     private bool _isSwitching;
+    private bool _isTestingConnection;
 
     public ObservableCollection<CodexProfile> Profiles { get; } = new();
 
@@ -59,7 +63,10 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             OnPropertyChanged(nameof(SelectedProfileBaseUrl));
             OnPropertyChanged(nameof(SelectedProfileAuthModeText));
             OnPropertyChanged(nameof(SelectedProfileProviderCategoryText));
+            OnPropertyChanged(nameof(SelectedProfileTestModelText));
             OnPropertyChanged(nameof(CanSwitchSelectedProfile));
+            OnPropertyChanged(nameof(CanTestSelectedProfile));
+            OnPropertyChanged(nameof(TestConnectionButtonVisibility));
         }
     }
 
@@ -69,7 +76,11 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             ? string.Empty
             : SelectedProfile.ProviderCategory == ProviderCategory.OpenAI
                 ? "（无需配置，使用模板）"
-                : SelectedProfile.BaseUrl;
+                : !string.IsNullOrWhiteSpace(SelectedProfile.BaseUrl)
+                    ? SelectedProfile.BaseUrl
+                    : !string.IsNullOrWhiteSpace(SelectedProfile.StoredConfigTomlPath)
+                        ? "（从已保存的 config.toml 读取）"
+                        : string.Empty;
     public string SelectedProfileAuthModeText =>
         SelectedProfile is null
             ? string.Empty
@@ -82,6 +93,14 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             : SelectedProfile.ProviderCategory == ProviderCategory.OpenAI
                 ? "OpenAI"
                 : "APIKEY";
+    public string SelectedProfileTestModelText =>
+        SelectedProfile is null
+            ? string.Empty
+            : SelectedProfile.ProviderCategory == ProviderCategory.OpenAI
+                ? "（未启用）"
+                : string.IsNullOrWhiteSpace(SelectedProfile.TestModel)
+                    ? $"{DefaultConnectionTestModel}（默认）"
+                    : SelectedProfile.TestModel!;
     public bool IsSwitching
     {
         get => _isSwitching;
@@ -95,11 +114,33 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             _isSwitching = value;
             OnPropertyChanged();
             OnPropertyChanged(nameof(CanSwitchSelectedProfile));
+            OnPropertyChanged(nameof(CanTestSelectedProfile));
             OnPropertyChanged(nameof(SwitchIconOpacity));
         }
     }
 
-    public bool CanSwitchSelectedProfile => SelectedProfile is not null && !IsSwitching;
+    public bool IsTestingConnection
+    {
+        get => _isTestingConnection;
+        private set
+        {
+            if (_isTestingConnection == value)
+            {
+                return;
+            }
+
+            _isTestingConnection = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(CanSwitchSelectedProfile));
+            OnPropertyChanged(nameof(CanTestSelectedProfile));
+        }
+    }
+
+    public bool CanSwitchSelectedProfile => SelectedProfile is not null && !IsSwitching && !IsTestingConnection;
+    public bool CanTestSelectedProfile =>
+        SelectedProfile is { ProviderCategory: ProviderCategory.ApiKey } && !IsSwitching && !IsTestingConnection;
+    public Visibility TestConnectionButtonVisibility =>
+        SelectedProfile?.ProviderCategory == ProviderCategory.ApiKey ? Visibility.Visible : Visibility.Collapsed;
 
     public double SwitchIconOpacity => IsSwitching ? 0d : 1d;
 
@@ -111,7 +152,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow()
     {
         InitializeComponent();
-        TrySetWindowSizeAndCenter(1480, 1000);
+        TrySetWindowSizeAndCenter(1480, 1050);
 
         Activated += async (_, _) =>
         {
@@ -256,7 +297,8 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                     dialog.BaseUrl ?? string.Empty,
                     dialog.AuthJsonPath!,
                     dialog.ProviderCategory,
-                    configTomlSourcePath: null);
+                    configTomlSourcePath: null,
+                    testModel: null);
             }
             else
             {
@@ -268,7 +310,8 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                         dialog.BaseUrl ?? string.Empty,
                         dialog.ApiKey!,
                         dialog.ProviderCategory,
-                        dialog.ConfigTomlPath);
+                        dialog.ConfigTomlPath,
+                        dialog.TestModel);
                 }
                 else
                 {
@@ -278,7 +321,8 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                         dialog.BaseUrl ?? string.Empty,
                         dialog.AuthJsonPath!,
                         dialog.ProviderCategory,
-                        dialog.ConfigTomlPath);
+                        dialog.ConfigTomlPath,
+                        dialog.TestModel);
                 }
             }
 
@@ -318,7 +362,8 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                 dialog.ConfigTomlPath,
                 dialog.AuthMode,
                 dialog.AuthJsonPath,
-                dialog.ApiKey);
+                dialog.ApiKey,
+                dialog.TestModel);
 
             _database.LastSelectedProfileId = profile.Id;
             _store.Save(_database);
@@ -425,6 +470,72 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
 
         await ShowInfoAsync("成功", successMessage ?? "切换完成。", sender);
+    }
+
+    private async void TestConnection_Click(object sender, RoutedEventArgs e)
+    {
+        if (IsTestingConnection)
+        {
+            return;
+        }
+
+        var profile = SelectedProfile;
+        if (profile is null)
+        {
+            await ShowInfoAsync("提示", "请先选择一个组合。", sender);
+            return;
+        }
+
+        if (profile.ProviderCategory != ProviderCategory.ApiKey)
+        {
+            await ShowInfoAsync("提示", "当前只支持测试 APIKEY 组合。", sender);
+            return;
+        }
+
+        ConnectionTestContext context;
+        Uri endpoint;
+
+        try
+        {
+            context = ResolveConnectionTestContext(profile);
+            endpoint = _providerConnectionTest.BuildResponsesEndpoint(context.BaseUrl);
+        }
+        catch (InvalidOperationException ex)
+        {
+            await ShowErrorAsync("测试失败", ex.Message, sender);
+            return;
+        }
+        catch (Exception ex)
+        {
+            await ShowErrorAsync("测试失败", FormatExceptionMessage(ex), sender);
+            return;
+        }
+
+        IsTestingConnection = true;
+
+        ProviderConnectionTestResult result;
+        try
+        {
+            result = await _providerConnectionTest.TestResponsesAsync(context.BaseUrl, context.ApiKey, context.Model);
+        }
+        finally
+        {
+            IsTestingConnection = false;
+        }
+
+        var message = BuildConnectionTestDialogMessage(profile.Name, endpoint.AbsoluteUri, context.Model, result.Message);
+        switch (result.Status)
+        {
+            case ProviderConnectionTestStatus.Success:
+                await ShowInfoAsync("测试成功", message, sender);
+                break;
+            case ProviderConnectionTestStatus.Warning:
+                await ShowInfoAsync("测试警告", message, sender);
+                break;
+            default:
+                await ShowErrorAsync("测试失败", message, sender);
+                break;
+        }
     }
 
     private void SessionMigrationDaysBox_ValueChanged(NumberBox sender, NumberBoxValueChangedEventArgs args)
@@ -951,7 +1062,83 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private static string NormalizeApiKeyProviderName(string? value) =>
         ApiKeyProviderNameRules.NormalizeOrDefault(value);
 
+    private ConnectionTestContext ResolveConnectionTestContext(CodexProfile profile)
+    {
+        var baseUrl = ResolveConnectionTestBaseUrl(profile);
+        var apiKey = ResolveConnectionTestApiKey(profile);
+        var model = string.IsNullOrWhiteSpace(profile.TestModel)
+            ? DefaultConnectionTestModel
+            : profile.TestModel.Trim();
+        return new ConnectionTestContext(baseUrl, apiKey, model);
+    }
+
+    private string ResolveConnectionTestBaseUrl(CodexProfile profile)
+    {
+        if (!string.IsNullOrWhiteSpace(profile.StoredConfigTomlPath))
+        {
+            if (!_providerConnectionTest.TryReadBaseUrlFromConfigToml(profile.StoredConfigTomlPath, out var baseUrl, out var errorMessage))
+            {
+                throw new InvalidOperationException(errorMessage);
+            }
+
+            return baseUrl!;
+        }
+
+        if (string.IsNullOrWhiteSpace(profile.BaseUrl))
+        {
+            throw new InvalidOperationException("当前组合没有可用的 Base URL。");
+        }
+
+        return profile.BaseUrl.Trim();
+    }
+
+    private string ResolveConnectionTestApiKey(CodexProfile profile)
+    {
+        if (profile.AuthMode == CodexAuthMode.ApiKey)
+        {
+            if (string.IsNullOrWhiteSpace(profile.ProtectedApiKeyBase64))
+            {
+                throw new InvalidOperationException("当前组合没有保存 API Key。");
+            }
+
+            try
+            {
+                var apiKey = ApiKeyProtection.UnprotectFromBase64(profile.ProtectedApiKeyBase64).Trim();
+                if (string.IsNullOrWhiteSpace(apiKey))
+                {
+                    throw new InvalidOperationException("当前组合里的 API Key 为空。");
+                }
+
+                return apiKey;
+            }
+            catch (Exception ex) when (ex is FormatException or CryptographicException)
+            {
+                throw new InvalidOperationException("当前组合里的 API Key 无法读取。", ex);
+            }
+        }
+
+        if (!_providerConnectionTest.TryReadApiKeyFromAuthJson(profile.StoredAuthJsonPath ?? string.Empty, out var apiKeyFromFile, out var errorMessage))
+        {
+            throw new InvalidOperationException(errorMessage);
+        }
+
+        return apiKeyFromFile!;
+    }
+
+    private static string BuildConnectionTestDialogMessage(string profileName, string endpoint, string model, string resultMessage) =>
+        string.Join(
+            Environment.NewLine,
+            new[]
+            {
+                resultMessage,
+                string.Empty,
+                $"组合：{profileName}",
+                $"请求地址：{endpoint}",
+                $"测试模型：{model}"
+            });
+
     private sealed record WslDefaultRefreshResult(bool Success, WslEnvironmentInfo? Info, string ErrorMessage);
+    private sealed record ConnectionTestContext(string BaseUrl, string ApiKey, string Model);
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));

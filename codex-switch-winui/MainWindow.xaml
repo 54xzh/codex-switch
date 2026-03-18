@@ -146,14 +146,38 @@
                     <!-- Detail Card -->
                     <Grid Style="{StaticResource CardGridStyle}" Padding="{StaticResource CardPadding}">
                         <StackPanel Spacing="16">
-                            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
-                                <FontIcon Glyph="&#xE77B;" FontSize="24" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
-                                <TextBlock
-                                    FontSize="20"
-                                    FontWeight="Bold"
-                                    Text="{x:Bind SelectedProfileName, Mode=OneWay, TargetNullValue='(未选择)'}" 
-                                    VerticalAlignment="Center"/>
-                            </StackPanel>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+
+                                <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                                    <FontIcon Glyph="&#xE77B;" FontSize="24" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                                    <TextBlock
+                                        FontSize="20"
+                                        FontWeight="Bold"
+                                        Text="{x:Bind SelectedProfileName, Mode=OneWay, TargetNullValue='(未选择)'}"
+                                        VerticalAlignment="Center" />
+                                </StackPanel>
+
+                                <StackPanel
+                                    Grid.Column="1"
+                                    Orientation="Horizontal"
+                                    Spacing="8"
+                                    VerticalAlignment="Center"
+                                    Visibility="{x:Bind TestConnectionButtonVisibility, Mode=OneWay}">
+                                    <ProgressRing
+                                        Width="16"
+                                        Height="16"
+                                        IsActive="{x:Bind IsTestingConnection, Mode=OneWay}"
+                                        IsHitTestVisible="False" />
+                                    <Button
+                                        Click="TestConnection_Click"
+                                        Content="测试连接"
+                                        IsEnabled="{x:Bind CanTestSelectedProfile, Mode=OneWay}" />
+                                </StackPanel>
+                            </Grid>
 
                             <MenuFlyoutSeparator />
 
@@ -163,6 +187,7 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
                                     <RowDefinition Height="Auto" />
@@ -176,6 +201,9 @@
 
                                 <TextBlock Grid.Row="2" Grid.Column="0" Opacity="0.6" Text="提供商" VerticalAlignment="Center" />
                                 <TextBlock Grid.Row="2" Grid.Column="1" Text="{x:Bind SelectedProfileProviderCategoryText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Medium" />
+
+                                <TextBlock Grid.Row="3" Grid.Column="0" Opacity="0.6" Text="测试模型" VerticalAlignment="Center" />
+                                <TextBlock Grid.Row="3" Grid.Column="1" Text="{x:Bind SelectedProfileTestModelText, Mode=OneWay}" VerticalAlignment="Center" FontWeight="Medium" />
                             </Grid>
                         </StackPanel>
                     </Grid>

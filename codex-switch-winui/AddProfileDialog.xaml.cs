@@ -27,6 +27,7 @@ public sealed partial class AddProfileDialog : ContentDialog
     public CodexAuthMode AuthMode { get; private set; } = CodexAuthMode.AuthJsonFile;
     public string? AuthJsonPath { get; private set; }
     public string? ApiKey { get; private set; }
+    public string? TestModel { get; private set; }
 
     public AddProfileDialog(XamlRoot xamlRoot, IntPtr ownerHwnd, CodexProfile? editingProfile = null)
     {
@@ -132,6 +133,11 @@ public sealed partial class AddProfileDialog : ContentDialog
             AuthModeRadioButtons.Visibility = isOpenAi ? Visibility.Collapsed : Visibility.Visible;
         }
 
+        if (TestModelSection is not null)
+        {
+            TestModelSection.Visibility = isOpenAi ? Visibility.Collapsed : Visibility.Visible;
+        }
+
         if (isOpenAi)
         {
             AuthMode = CodexAuthMode.AuthJsonFile;
@@ -174,6 +180,12 @@ public sealed partial class AddProfileDialog : ContentDialog
             BaseUrl = string.Empty;
             ConfigTomlPath = null;
             ImportConfigToml = false;
+            TestModel = null;
+
+            if (TestModelBox is not null)
+            {
+                TestModelBox.Text = string.Empty;
+            }
         }
         else
         {
@@ -215,6 +227,11 @@ public sealed partial class AddProfileDialog : ContentDialog
         if (ApiKeyBox is not null)
         {
             ApiKeyBox.PlaceholderText = "留空保持不变";
+        }
+
+        if (TestModelBox is not null)
+        {
+            TestModelBox.Text = _editingProfile.TestModel ?? string.Empty;
         }
 
         var isOpenAi = _editingProfile.ProviderCategory == ProviderCategory.OpenAI;
@@ -319,6 +336,7 @@ public sealed partial class AddProfileDialog : ContentDialog
         var configPath = ConfigPathBox.Text?.Trim();
         var authPath = AuthPathBox.Text?.Trim();
         var apiKey = ApiKeyBox.Password?.Trim();
+        var testModel = TestModelBox.Text?.Trim();
 
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -350,6 +368,7 @@ public sealed partial class AddProfileDialog : ContentDialog
             AuthMode = CodexAuthMode.AuthJsonFile;
             AuthJsonPath = string.IsNullOrWhiteSpace(authPath) ? null : authPath;
             ApiKey = null;
+            TestModel = null;
             ErrorBar.IsOpen = false;
             return;
         }
@@ -405,6 +424,7 @@ public sealed partial class AddProfileDialog : ContentDialog
             ConfigTomlPath = string.IsNullOrWhiteSpace(configPath) ? null : configPath;
             ApiKey = string.IsNullOrWhiteSpace(apiKey) ? null : apiKey;
             AuthJsonPath = null;
+            TestModel = string.IsNullOrWhiteSpace(testModel) ? null : testModel;
             ErrorBar.IsOpen = false;
             return;
         }
@@ -425,6 +445,7 @@ public sealed partial class AddProfileDialog : ContentDialog
         ConfigTomlPath = string.IsNullOrWhiteSpace(configPath) ? null : configPath;
         AuthJsonPath = string.IsNullOrWhiteSpace(authPath) ? null : authPath;
         ApiKey = null;
+        TestModel = string.IsNullOrWhiteSpace(testModel) ? null : testModel;
         ErrorBar.IsOpen = false;
     }
 

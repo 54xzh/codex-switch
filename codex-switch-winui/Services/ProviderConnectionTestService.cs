@@ -1,9 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -26,6 +26,17 @@ public sealed class ProviderConnectionTestService
     private static readonly Regex BaseUrlLineRegex = new(
         "^\\s*base_url\\s*=\\s*\"(?<value>(?:[^\"\\\\]|\\\\.)*)\"",
         RegexOptions.Compiled | RegexOptions.Multiline | RegexOptions.CultureInvariant);
+
+    public Uri BuildResponsesEndpoint(string baseUrl)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
+
+        var normalizedBaseUrl = baseUrl.Trim().TrimEnd('/');
+        var endpoint = normalizedBaseUrl.EndsWith("/responses", StringComparison.OrdinalIgnoreCase)
+            ? normalizedBaseUrl
+            : $"{normalizedBaseUrl}/responses";
+        return new Uri(endpoint, UriKind.Absolute);
+    }
 
     public bool TryReadBaseUrlFromConfigToml(string configTomlPath, out string? baseUrl, out string errorMessage)
     {
@@ -130,61 +141,57 @@ public sealed class ProviderConnectionTestService
         }
     }
 
-    public async Task<ProviderConnectionTestResult> TestAsync(string baseUrl, string apiKey, CancellationToken cancellationToken = default)
+    public async Task<ProviderConnectionTestResult> TestResponsesAsync(
+        string baseUrl,
+        string apiKey,
+        string model,
+        CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(baseUrl);
         ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
+        ArgumentException.ThrowIfNullOrWhiteSpace(model);
 
-        HttpStatusCode? lastStatusCode = null;
-        string? lastResponseBody = null;
-
-        foreach (var endpoint in GetCandidateEndpoints(baseUrl))
+        try
         {
-            try
-            {
-                using var request = new HttpRequestMessage(HttpMethod.Get, endpoint);
-                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
-                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var endpoint = BuildResponsesEndpoint(baseUrl);
+            var firstAttempt = await SendResponsesRequestAsync(
+                endpoint,
+                apiKey,
+                model,
+                includeMaxOutputTokens: true,
+                cancellationToken);
 
-                using var response = await HttpClient.SendAsync(
-                    request,
-                    HttpCompletionOption.ResponseHeadersRead,
+            if (ShouldRetryWithoutMaxOutputTokens(firstAttempt.StatusCode, firstAttempt.ResponseBody))
+            {
+                var fallbackAttempt = await SendResponsesRequestAsync(
+                    endpoint,
+                    apiKey,
+                    model,
+                    includeMaxOutputTokens: false,
                     cancellationToken);
-
-                var responseBody = response.Content is null
-                    ? string.Empty
-                    : await response.Content.ReadAsStringAsync(cancellationToken);
-
-                if (response.IsSuccessStatusCode)
-                {
-                    return CreateSuccessResult(responseBody);
-                }
-
-                lastStatusCode = response.StatusCode;
-                lastResponseBody = responseBody;
-
-                if (response.StatusCode == HttpStatusCode.NotFound)
-                {
-                    continue;
-                }
-
-                return CreateFailureResult(response.StatusCode, responseBody);
+                return CreateResult(fallbackAttempt.StatusCode, fallbackAttempt.ResponseBody);
             }
-            catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                return new ProviderConnectionTestResult(
-                    ProviderConnectionTestStatus.Failure,
-                    "测试超时了。请检查 Base URL 是否正确，或稍后重试。");
-            }
-            catch (HttpRequestException ex)
-            {
-                return new ProviderConnectionTestResult(
-                    ProviderConnectionTestStatus.Failure,
-                    $"连接失败：{ex.Message}");
-            }
+
+            return CreateResult(firstAttempt.StatusCode, firstAttempt.ResponseBody);
         }
-
-        return CreateFailureResult(lastStatusCode ?? HttpStatusCode.NotFound, lastResponseBody);
+        catch (UriFormatException)
+        {
+            return new ProviderConnectionTestResult(
+                ProviderConnectionTestStatus.Failure,
+                "连接失败：Base URL 格式不正确。");
+        }
+        catch (TaskCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return new ProviderConnectionTestResult(
+                ProviderConnectionTestStatus.Failure,
+                "测试超时了。请检查 Base URL 是否正确，或稍后重试。");
+        }
+        catch (HttpRequestException ex)
+        {
+            return new ProviderConnectionTestResult(
+                ProviderConnectionTestStatus.Failure,
+                $"连接失败：{ex.Message}");
+        }
     }
 
     private static HttpClient CreateHttpClient()
@@ -196,41 +203,59 @@ public sealed class ProviderConnectionTestService
         return client;
     }
 
-    private static IEnumerable<Uri> GetCandidateEndpoints(string baseUrl)
+    private static async Task<ResponsesAttempt> SendResponsesRequestAsync(
+        Uri endpoint,
+        string apiKey,
+        string model,
+        bool includeMaxOutputTokens,
+        CancellationToken cancellationToken)
     {
-        var normalizedBaseUrl = baseUrl.Trim().TrimEnd('/');
-        if (normalizedBaseUrl.EndsWith("/models", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new Uri(normalizedBaseUrl, UriKind.Absolute);
-            yield break;
-        }
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey.Trim());
+        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-        yield return new Uri($"{normalizedBaseUrl}/models", UriKind.Absolute);
+        var payload = includeMaxOutputTokens
+            ? JsonSerializer.Serialize(new
+            {
+                model = model.Trim(),
+                input = "ping",
+                max_output_tokens = 1
+            })
+            : JsonSerializer.Serialize(new
+            {
+                model = model.Trim(),
+                input = "ping"
+            });
+        request.Content = new StringContent(payload, Encoding.UTF8, "application/json");
 
-        if (!normalizedBaseUrl.EndsWith("/v1", StringComparison.OrdinalIgnoreCase))
-        {
-            yield return new Uri($"{normalizedBaseUrl}/v1/models", UriKind.Absolute);
-        }
+        using var response = await HttpClient.SendAsync(
+            request,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken);
+
+        var responseBody = response.Content is null
+            ? string.Empty
+            : await response.Content.ReadAsStringAsync(cancellationToken);
+        return new ResponsesAttempt(response.StatusCode, responseBody);
     }
 
-    private static ProviderConnectionTestResult CreateSuccessResult(string responseBody)
+    private static ProviderConnectionTestResult CreateResult(HttpStatusCode statusCode, string? responseBody)
     {
-        var modelCount = TryGetModelCount(responseBody);
-        if (modelCount is > 0)
+        if ((int)statusCode >= 200 && (int)statusCode <= 299)
         {
             return new ProviderConnectionTestResult(
                 ProviderConnectionTestStatus.Success,
-                $"连接成功，已拿到 {modelCount.Value} 个模型。");
+                "连接成功，测试模型可用。");
         }
 
-        return new ProviderConnectionTestResult(
-            ProviderConnectionTestStatus.Success,
-            "连接成功，当前提供商可用。");
-    }
-
-    private static ProviderConnectionTestResult CreateFailureResult(HttpStatusCode statusCode, string? responseBody)
-    {
         var detail = TryGetResponseMessage(responseBody);
+        if (LooksLikeModelIssue(statusCode, detail, responseBody))
+        {
+            return new ProviderConnectionTestResult(
+                ProviderConnectionTestStatus.Warning,
+                AppendDetail("已经连到服务，但测试模型不可用。你可以换一个测试模型再试。", detail));
+        }
+
         return statusCode switch
         {
             HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden => new ProviderConnectionTestResult(
@@ -241,36 +266,50 @@ public sealed class ProviderConnectionTestService
                 AppendDetail("连接到了提供商，但当前被限流。一般说明地址和认证信息是通的。", detail)),
             HttpStatusCode.NotFound => new ProviderConnectionTestResult(
                 ProviderConnectionTestStatus.Failure,
-                AppendDetail("连接失败：没有找到模型接口，请检查 Base URL 是否正确。", detail)),
+                AppendDetail("连接失败：没有找到 responses 接口，请检查 Base URL 是否正确。", detail)),
             _ => new ProviderConnectionTestResult(
                 ProviderConnectionTestStatus.Failure,
                 AppendDetail($"连接失败：服务返回 {(int)statusCode} {statusCode}。", detail))
         };
     }
 
-    private static int? TryGetModelCount(string responseBody)
+    private static bool ShouldRetryWithoutMaxOutputTokens(HttpStatusCode statusCode, string? responseBody)
     {
-        if (string.IsNullOrWhiteSpace(responseBody))
+        if (statusCode != HttpStatusCode.BadRequest || string.IsNullOrWhiteSpace(responseBody))
         {
-            return null;
+            return false;
         }
 
-        try
-        {
-            using var document = JsonDocument.Parse(responseBody);
-            if (document.RootElement.ValueKind != JsonValueKind.Object
-                || !document.RootElement.TryGetProperty("data", out var dataElement)
-                || dataElement.ValueKind != JsonValueKind.Array)
-            {
-                return null;
-            }
+        var normalized = responseBody.ToLowerInvariant();
+        return normalized.Contains("max_output_tokens", StringComparison.Ordinal)
+            || normalized.Contains("unknown parameter", StringComparison.Ordinal)
+            || normalized.Contains("unknown field", StringComparison.Ordinal)
+            || normalized.Contains("additional properties", StringComparison.Ordinal)
+            || normalized.Contains("extra inputs are not permitted", StringComparison.Ordinal);
+    }
 
-            return dataElement.GetArrayLength();
-        }
-        catch (JsonException)
+    private static bool LooksLikeModelIssue(HttpStatusCode statusCode, string? detail, string? responseBody)
+    {
+        if (statusCode is not (HttpStatusCode.BadRequest or HttpStatusCode.NotFound or HttpStatusCode.UnprocessableEntity))
         {
-            return null;
+            return false;
         }
+
+        var normalized = $"{detail}\n{responseBody}".ToLowerInvariant();
+        if (!normalized.Contains("model", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return normalized.Contains("not found", StringComparison.Ordinal)
+            || normalized.Contains("does not exist", StringComparison.Ordinal)
+            || normalized.Contains("unknown model", StringComparison.Ordinal)
+            || normalized.Contains("unsupported", StringComparison.Ordinal)
+            || normalized.Contains("not available", StringComparison.Ordinal)
+            || normalized.Contains("invalid model", StringComparison.Ordinal)
+            || normalized.Contains("无效模型", StringComparison.Ordinal)
+            || normalized.Contains("模型不存在", StringComparison.Ordinal)
+            || normalized.Contains("不支持", StringComparison.Ordinal);
     }
 
     private static string? TryGetResponseMessage(string? responseBody)
@@ -320,4 +359,6 @@ public sealed class ProviderConnectionTestService
         string.IsNullOrWhiteSpace(detail)
             ? message
             : $"{message} 详情：{detail}";
+
+    private readonly record struct ResponsesAttempt(HttpStatusCode StatusCode, string ResponseBody);
 }

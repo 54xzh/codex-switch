@@ -134,6 +134,24 @@
                     </StackPanel>
                 </StackPanel>
             </Grid>
+
+            <Grid x:Name="TestModelSection" ColumnSpacing="{StaticResource StandardSpacing}">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="100" />
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+                <TextBlock VerticalAlignment="Top" Margin="0,8,0,0" Opacity="0.8" Text="测试模型" />
+                <StackPanel Grid.Column="1" Spacing="4">
+                    <TextBox
+                        x:Name="TestModelBox"
+                        PlaceholderText="留空使用默认值 gpt-5.4-mini" />
+                    <TextBlock
+                        Opacity="0.6"
+                        FontSize="12"
+                        Text="测试连接时会优先使用这里的模型名。留空时自动使用默认测试模型。"
+                        TextWrapping="WrapWholeWords" />
+                </StackPanel>
+            </Grid>
         </StackPanel>
     </Grid>
 </ContentDialog>

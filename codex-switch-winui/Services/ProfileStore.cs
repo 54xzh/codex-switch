@@ -58,7 +58,8 @@ public sealed class ProfileStore
         string baseUrl,
         string authJsonSourcePath,
         ProviderCategory providerCategory,
-        string? configTomlSourcePath = null)
+        string? configTomlSourcePath = null,
+        string? testModel = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(authJsonSourcePath);
@@ -106,6 +107,7 @@ public sealed class ProfileStore
             Id = id,
             Name = name.Trim(),
             BaseUrl = baseUrl.Trim(),
+            TestModel = NormalizeOptionalValue(testModel),
             ProviderCategory = providerCategory,
             AuthMode = CodexAuthMode.AuthJsonFile,
             StoredAuthJsonPath = storedAuthPath,
@@ -126,7 +128,8 @@ public sealed class ProfileStore
         string baseUrl,
         string apiKey,
         ProviderCategory providerCategory,
-        string? configTomlSourcePath = null)
+        string? configTomlSourcePath = null,
+        string? testModel = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(apiKey);
@@ -164,6 +167,7 @@ public sealed class ProfileStore
             Id = id,
             Name = name.Trim(),
             BaseUrl = baseUrl.Trim(),
+            TestModel = NormalizeOptionalValue(testModel),
             ProviderCategory = providerCategory,
             AuthMode = CodexAuthMode.ApiKey,
             StoredAuthJsonPath = null,
@@ -188,7 +192,8 @@ public sealed class ProfileStore
         string? configTomlSourcePath,
         CodexAuthMode authMode,
         string? authJsonSourcePath,
-        string? apiKey)
+        string? apiKey,
+        string? testModel)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
 
@@ -205,6 +210,7 @@ public sealed class ProfileStore
 
         profile.Name = name.Trim();
         profile.ProviderCategory = providerCategory;
+        profile.TestModel = providerCategory == ProviderCategory.OpenAI ? null : NormalizeOptionalValue(testModel);
         profile.UpdatedAtUtc = DateTime.UtcNow;
 
         if (providerCategory == ProviderCategory.OpenAI)
@@ -323,4 +329,7 @@ public sealed class ProfileStore
     }
 
     private string GetProfileDirectoryPath(Guid profileId) => Path.Combine(ProfilesPath, profileId.ToString("N"));
+
+    private static string? NormalizeOptionalValue(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }
