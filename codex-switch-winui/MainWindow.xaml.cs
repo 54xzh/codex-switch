@@ -152,7 +152,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public MainWindow()
     {
         InitializeComponent();
-        TrySetWindowSizeAndCenter(1480, 1050);
+        TrySetWindowSizeAndCenter(1480, 1060);
 
         Activated += async (_, _) =>
         {
